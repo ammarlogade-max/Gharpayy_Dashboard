@@ -93,6 +93,26 @@ const ConversationChat = ({ leadId, leadName, leadBudget, leadLocation, leadStat
         ))}
       </div>
 
+      {/* AI Suggestions */}
+      {aiSuggestions.length > 0 && (
+        <div className="border-t border-border px-3 py-2 space-y-1.5">
+          <p className="text-[10px] font-medium text-accent flex items-center gap-1"><Sparkles size={10} /> AI Suggestions</p>
+          {aiSuggestions.map((s: any, i: number) => (
+            <button
+              key={i}
+              className="w-full text-left p-2 rounded-lg bg-accent/5 border border-accent/10 hover:bg-accent/10 transition-colors group"
+              onClick={() => { setText(s.message); setAiSuggestions([]); }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] font-medium text-accent">{s.label}</span>
+                <Copy size={10} className="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+              </div>
+              <p className="text-[10px] text-foreground mt-0.5 line-clamp-2">{s.message}</p>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Composer */}
       <div className="border-t border-border p-3">
         <div className="flex items-end gap-2">
@@ -114,6 +134,11 @@ const ConversationChat = ({ leadId, leadName, leadBudget, leadLocation, leadStat
               ))}
             </PopoverContent>
           </Popover>
+
+          {/* AI suggest */}
+          <Button variant="outline" size="sm" className="h-9 w-9 p-0 shrink-0 rounded-xl" onClick={handleSuggestReply} disabled={aiLoading}>
+            {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          </Button>
 
           <textarea
             value={text}
