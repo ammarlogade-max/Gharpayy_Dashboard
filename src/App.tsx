@@ -19,6 +19,7 @@ import EffortDashboard from "./pages/EffortDashboard";
 import Availability from "./pages/Availability";
 import Matching from "./pages/Matching";
 import Bookings from "./pages/Bookings";
+import ZoneManagement from "./pages/ZoneManagement";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
