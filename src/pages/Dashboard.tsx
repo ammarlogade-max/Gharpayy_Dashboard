@@ -1,0 +1,140 @@
+import AppLayout from '@/components/AppLayout';
+import KpiCard from '@/components/KpiCard';
+import { dashboardStats, mockLeads, mockAgents } from '@/data/mockData';
+import { PIPELINE_STAGES, SOURCE_LABELS } from '@/types/crm';
+import { Users, Clock, CalendarCheck, CheckCircle, TrendingUp, AlertTriangle, Timer, Building } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+
+const pipelineData = PIPELINE_STAGES.map(stage => ({
+  name: stage.label.replace(' ', '\n'),
+  count: mockLeads.filter(l => l.status === stage.key).length,
+}));
+
+const sourceData = Object.entries(
+  mockLeads.reduce((acc, l) => {
+    acc[l.source] = (acc[l.source] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>)
+).map(([key, value]) => ({ name: SOURCE_LABELS[key as keyof typeof SOURCE_LABELS], value }));
+
+const PIE_COLORS = [
+  'hsl(142, 71%, 45%)', 'hsl(217, 91%, 60%)', 'hsl(330, 80%, 60%)',
+  'hsl(262, 83%, 58%)', 'hsl(38, 92%, 50%)', 'hsl(173, 80%, 40%)',
+];
+
+const Dashboard = () => {
+  const slaBreaches = mockLeads.filter(l => l.firstResponseTime && l.firstResponseTime > 5).length;
+  const newLeads = mockLeads.filter(l => l.status === 'new');
+
+  return (
+    <AppLayout title="Dashboard" subtitle="Real-time overview of your sales pipeline">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <KpiCard title="Total Leads" value={dashboardStats.totalLeads} change={12} icon={<Users size={18} />} />
+        <KpiCard title="Avg Response Time" value={dashboardStats.avgResponseTime} suffix="min" change={-8} icon={<Clock size={18} />} color="hsl(38, 92%, 50%)" />
+        <KpiCard title="Visits Scheduled" value={dashboardStats.visitsScheduled} change={15} icon={<CalendarCheck size={18} />} color="hsl(173, 80%, 40%)" />
+        <KpiCard title="Bookings Closed" value={dashboardStats.bookingsClosed} change={22} icon={<CheckCircle size={18} />} color="hsl(142, 71%, 45%)" />
+      </div>
+
+      {/* Second row KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <KpiCard title="Conversion Rate" value={dashboardStats.conversionRate} suffix="%" change={5} icon={<TrendingUp size={18} />} color="hsl(262, 83%, 58%)" />
+        <KpiCard title="SLA Compliance" value={dashboardStats.responseWithinSLA} suffix="%" change={-3} icon={<Timer size={18} />} color="hsl(217, 91%, 60%)" />
+        <KpiCard title="New Today" value={dashboardStats.newToday} icon={<Users size={18} />} color="hsl(330, 80%, 60%)" />
+        <KpiCard title="SLA Breaches" value={slaBreaches} icon={<AlertTriangle size={18} />} color="hsl(0, 72%, 51%)" />
+      </div>
+
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+        {/* Pipeline Distribution */}
+        <div className="lg:col-span-2 kpi-card">
+          <h3 className="font-display font-semibold text-sm text-foreground mb-4">Pipeline Distribution</h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={pipelineData}>
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: 'hsl(220, 10%, 46%)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
+              <Bar dataKey="count" fill="hsl(24, 95%, 53%)" radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Lead Sources */}
+        <div className="kpi-card">
+          <h3 className="font-display font-semibold text-sm text-foreground mb-4">Lead Sources</h3>
+          <ResponsiveContainer width="100%" height={180}>
+            <PieChart>
+              <Pie data={sourceData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
+                {sourceData.map((_, i) => (
+                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', fontSize: '12px' }} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {sourceData.map((s, i) => (
+              <div key={s.name} className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <div className="w-2 h-2 rounded-full" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                {s.name}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* New Leads Requiring Attention */}
+        <div className="kpi-card">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display font-semibold text-sm text-foreground">🔴 Needs Attention</h3>
+            <span className="text-xs text-muted-foreground">{newLeads.length} unresponded</span>
+          </div>
+          <div className="space-y-2">
+            {newLeads.map(lead => (
+              <div key={lead.id} className="flex items-center justify-between p-2.5 rounded-lg bg-secondary/50">
+                <div>
+                  <p className="text-sm font-medium text-foreground">{lead.name}</p>
+                  <p className="text-[10px] text-muted-foreground">{lead.preferredLocation} • {lead.budget}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-muted-foreground">{lead.assignedAgent}</p>
+                  <p className="text-[10px] text-destructive font-medium">Awaiting response</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Agent Performance */}
+        <div className="kpi-card">
+          <h3 className="font-display font-semibold text-sm text-foreground mb-3">Agent Performance</h3>
+          <div className="space-y-2">
+            {mockAgents.map(agent => (
+              <div key={agent.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-secondary/50">
+                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+                  <span className="text-xs font-bold text-primary">{agent.name.charAt(0)}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">{agent.name}</p>
+                  <div className="flex gap-3 mt-0.5">
+                    <span className="text-[10px] text-muted-foreground">{agent.activeLeads} active</span>
+                    <span className="text-[10px] text-muted-foreground">{agent.avgResponseTime}m avg</span>
+                    <span className="text-[10px] text-emerald-600">{agent.conversions} booked</span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-lg font-display font-bold text-foreground">{Math.round((agent.conversions / agent.totalLeads) * 100)}%</p>
+                  <p className="text-[9px] text-muted-foreground">conversion</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </AppLayout>
+  );
+};
+
+export default Dashboard;
