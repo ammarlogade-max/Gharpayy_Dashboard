@@ -5,6 +5,9 @@ export interface ConversationThread {
   leadId: string;
   leadName: string;
   leadPhone: string;
+  leadBudget?: string;
+  leadLocation?: string;
+  leadStatus?: string;
   lastMessage: string;
   lastMessageAt: string;
   channel: string;
