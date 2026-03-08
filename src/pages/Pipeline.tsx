@@ -60,7 +60,7 @@ function DraggableCard({ lead, onClick }: { lead: LeadWithRelations; onClick: ()
         budget: lead.budget ?? undefined,
         preferredLocation: lead.preferred_location ?? undefined,
         property: lead.properties?.name ?? undefined,
-      }} />
+      }} stale={new Date(lead.last_activity_at).getTime() < Date.now() - 7 * 86400000} />
     </div>
   );
 }
