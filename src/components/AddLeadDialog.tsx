@@ -9,7 +9,6 @@ import { Plus, AlertTriangle, Sparkles, Phone, Mail, MapPin, IndianRupee, User, 
 import { useCreateLead, useAgents } from '@/hooks/useCrmData';
 import { SOURCE_LABELS } from '@/types/crm';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 import { parseLeadText, type ParsedLead } from '@/lib/parseLeadText';
 import { motion } from 'framer-motion';
 
@@ -28,9 +27,14 @@ const AddLeadDialog = () => {
 
   const checkDuplicate = async (phone: string) => {
     if (!phone || phone.length < 5) { setDuplicate(null); return; }
-    const { data } = await supabase.from('leads').select('id, name, phone, status').eq('phone', phone).limit(1);
-    if (data && data.length > 0) setDuplicate(data[0]);
-    else setDuplicate(null);
+    try {
+      const res = await fetch(`/api/leads/check-duplicate?phone=${phone}`);
+      const data = await res.json();
+      if (data) setDuplicate(data);
+      else setDuplicate(null);
+    } catch (e) {
+      setDuplicate(null);
+    }
   };
 
   const handleParse = useCallback((text: string) => {
@@ -57,16 +61,16 @@ const AddLeadDialog = () => {
       return;
     }
     try {
-      const agentId = form.assigned_agent_id || agents?.[0]?.id || null;
+      const agentId = form.assigned_agent_id || (agents?.[0] as any)?.id || null;
       await createLead.mutateAsync({
         name: form.name,
         phone: form.phone,
         email: form.email || null,
         source: form.source as any,
         budget: form.budget || null,
-        preferred_location: form.preferred_location || null,
+        preferredLocation: form.preferred_location || null,
         notes: form.notes || null,
-        assigned_agent_id: agentId,
+        assignedAgentId: agentId,
         status: 'new',
       });
       toast.success('Lead created successfully!');
@@ -79,6 +83,7 @@ const AddLeadDialog = () => {
       toast.error(err.message || 'Failed to create lead');
     }
   };
+
 
   const chips = parsed ? [
     { icon: User, label: 'Name', value: parsed.name, conf: parsed.confidence.name, color: 'text-primary' },

@@ -1,4 +1,5 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from '@/components/NavLink';
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Kanban, CalendarCheck, BarChart3, Settings,
   MessageSquare, History, X, Moon, Sun, Building2, Bed, TrendingUp,
@@ -32,17 +33,20 @@ const portalItems = [
 ];
 
 const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => void }) => {
-  const location = useLocation();
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
+  const pathname = usePathname();
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    setDark(document.documentElement.classList.contains('dark'));
+  }, []);
   useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
 
   const renderGroup = (label: string, items: typeof salesItems) => (
     <>
       <p className="px-2.5 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: 'hsl(var(--sidebar-fg))' }}>{label}</p>
       {items.map((item) => {
-        const isActive = location.pathname === item.to;
+        const isActive = pathname === item.to;
         return (
-          <NavLink key={item.to} to={item.to} onClick={onClose} className={`sidebar-link ${isActive ? 'active' : ''}`}>
+          <NavLink key={item.to} href={item.to} onClick={onClose} className={`sidebar-link ${isActive ? 'active' : ''}`}>
             <item.icon size={15} strokeWidth={isActive ? 2 : 1.6} />
             <span>{item.label}</span>
           </NavLink>
@@ -93,7 +97,7 @@ const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => voi
             {dark ? <Sun size={15} strokeWidth={1.6} /> : <Moon size={15} strokeWidth={1.6} />}
             <span>{dark ? 'Light' : 'Dark'}</span>
           </button>
-          <NavLink to="/settings" onClick={onClose} className={`sidebar-link ${location.pathname === '/settings' ? 'active' : ''}`}>
+          <NavLink href="/settings" onClick={onClose} className={`sidebar-link ${pathname === '/settings' ? 'active' : ''}`}>
             <Settings size={15} strokeWidth={1.6} />
             <span>Settings</span>
           </NavLink>

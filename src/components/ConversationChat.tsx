@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { Send, Zap, Sparkles, Loader2, Copy } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { format } from 'date-fns';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 interface Props {
@@ -30,6 +29,7 @@ const ConversationChat = ({ leadId, leadName, leadBudget, leadLocation, leadStat
     setText('');
   };
 
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
@@ -38,17 +38,19 @@ const ConversationChat = ({ leadId, leadName, leadBudget, leadLocation, leadStat
     setAiLoading(true);
     setAiSuggestions([]);
     try {
-      const { data, error } = await supabase.functions.invoke('ai-suggest-reply', {
-        body: {
+      const res = await fetch('/api/ai/suggest-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           messages: messages?.slice(-5),
           leadName,
           leadBudget: leadBudget || '',
           leadLocation: leadLocation || '',
           leadStatus: leadStatus || 'new',
-        },
+        }),
       });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (!res.ok) throw new Error('AI suggestion failed');
+      const data = await res.json();
       setAiSuggestions(data.suggestions || []);
     } catch (e: any) {
       toast.error(e.message || 'AI suggestion failed');
@@ -56,6 +58,7 @@ const ConversationChat = ({ leadId, leadName, leadBudget, leadLocation, leadStat
       setAiLoading(false);
     }
   };
+
 
   if (!leadId) {
     return (
@@ -85,9 +88,10 @@ const ConversationChat = ({ leadId, leadName, leadBudget, leadLocation, leadStat
             }`}>
               <p className="text-xs leading-relaxed">{m.message}</p>
               <div className="flex items-center gap-1.5 mt-1">
-                <span className="text-[9px] opacity-70">{format(new Date(m.created_at), 'h:mm a')}</span>
+                <span className="text-[9px] opacity-70">{format(new Date(m.createdAt), 'h:mm a')}</span>
                 <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 border-current/20">{m.channel}</Badge>
               </div>
+
             </div>
           </div>
         ))}

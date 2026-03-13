@@ -1,13 +1,13 @@
 import { useAgents, useLeads, useProperties } from '@/hooks/useCrmData';
 import { Users, Building2, UserPlus, CheckCircle, ArrowRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 
 const OnboardingCard = () => {
   const { data: agents } = useAgents();
   const { data: leads } = useLeads();
   const { data: properties } = useProperties();
-  const navigate = useNavigate();
+  const router = useRouter();
 
   const steps = [
     { label: 'Add your first agent', done: (agents?.length || 0) > 0, icon: Users, path: '/settings' },
@@ -51,7 +51,7 @@ const OnboardingCard = () => {
         {steps.map((step, i) => (
           <button
             key={i}
-            onClick={() => !step.done && navigate(step.path)}
+            onClick={() => !step.done && router.push(step.path)}
             disabled={step.done}
             className={`w-full flex items-center gap-3 p-3.5 rounded-xl transition-all ${
               step.done

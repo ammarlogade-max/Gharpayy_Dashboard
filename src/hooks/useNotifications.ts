@@ -1,20 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { useEffect } from 'react';
 
 export const useNotifications = () => {
-  const qc = useQueryClient();
-
   return useQuery({
     queryKey: ['notifications'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return data;
+      const res = await fetch('/api/notifications');
+      if (!res.ok) throw new Error('Failed to fetch notifications');
+      return res.json();
     },
   });
 };
@@ -23,8 +15,10 @@ export const useMarkNotificationRead = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('notifications').update({ is_read: true }).eq('id', id);
-      if (error) throw error;
+      const res = await fetch(`/api/notifications?id=${id}`, {
+        method: 'PATCH',
+      });
+      if (!res.ok) throw new Error('Failed to mark notification as read');
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   });
@@ -34,9 +28,12 @@ export const useMarkAllRead = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from('notifications').update({ is_read: true }).eq('is_read', false);
-      if (error) throw error;
+      const res = await fetch('/api/notifications?all=true', {
+        method: 'PATCH',
+      });
+      if (!res.ok) throw new Error('Failed to mark all notifications as read');
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   });
 };
+

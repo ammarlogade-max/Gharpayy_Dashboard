@@ -1,5 +1,4 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
 
 export interface ConversationThread {
   leadId: string;
@@ -18,27 +17,25 @@ export const useConversationThreads = () =>
   useQuery({
     queryKey: ['conversation-threads'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('*, leads(id, name, phone, budget, preferred_location, status)')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
+      const res = await fetch('/api/conversations');
+      if (!res.ok) throw new Error('Failed to fetch conversations');
+      const data = await res.json();
 
-      // Group by lead_id
+      // Group by leadId
       const grouped: Record<string, ConversationThread> = {};
       for (const c of data || []) {
-        const lid = c.lead_id;
+        const lid = c.leadId?._id || c.leadId || 'unknown';
         if (!grouped[lid]) {
           grouped[lid] = {
             leadId: lid,
-            leadName: (c as any).leads?.name || 'Unknown',
-            leadPhone: (c as any).leads?.phone || '',
-            leadBudget: (c as any).leads?.budget || '',
-            leadLocation: (c as any).leads?.preferred_location || '',
-            leadStatus: (c as any).leads?.status || 'new',
+            leadName: c.leadId?.name || 'Unknown',
+            leadPhone: c.leadId?.phone || '',
+            leadBudget: c.leadId?.budget || '',
+            leadLocation: c.leadId?.preferredLocation || '',
+            leadStatus: c.leadId?.status || 'new',
             lastMessage: c.message,
-            lastMessageAt: c.created_at,
-            channel: c.channel,
+            lastMessageAt: c.createdAt,
+            channel: c.channel || 'whatsapp',
             messageCount: 0,
           };
         }
@@ -53,13 +50,9 @@ export const useConversationMessages = (leadId: string | null) =>
     queryKey: ['conversation-messages', leadId],
     enabled: !!leadId,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('conversations')
-        .select('*, agents(id, name)')
-        .eq('lead_id', leadId!)
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      return data;
+      const res = await fetch(`/api/conversations?leadId=${leadId}`);
+      if (!res.ok) throw new Error('Failed to fetch conversation messages');
+      return res.json();
     },
   });
 
@@ -67,15 +60,19 @@ export const useSendMessage = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (msg: { lead_id: string; message: string; channel?: string; agent_id?: string }) => {
-      const { data, error } = await supabase.from('conversations').insert({
-        lead_id: msg.lead_id,
-        message: msg.message,
-        direction: 'outbound',
-        channel: msg.channel || 'whatsapp',
-        agent_id: msg.agent_id || null,
-      }).select().single();
-      if (error) throw error;
-      return data;
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          leadId: msg.lead_id,
+          message: msg.message,
+          direction: 'outbound',
+          source: 'manual', // Mapping channel to source/channel
+          agentId: msg.agent_id || null,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to send message');
+      return res.json();
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['conversation-threads'] });
@@ -88,8 +85,9 @@ export const useMessageTemplates = () =>
   useQuery({
     queryKey: ['message-templates'],
     queryFn: async () => {
-      const { data, error } = await supabase.from('message_templates').select('*').order('name');
-      if (error) throw error;
-      return data;
+      const res = await fetch('/api/message-templates');
+      if (!res.ok) throw new Error('Failed to fetch templates');
+      return res.json();
     },
   });
+

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useRouter } from 'next/navigation';
 import {
   CommandDialog,
   CommandInput,
@@ -41,7 +41,7 @@ const pages = [
 ];
 
 const CommandPalette = ({ open, onOpenChange }: CommandPaletteProps) => {
-  const navigate = useNavigate();
+  const router = useRouter();
   const { data: leads } = useLeads();
 
   // Global keyboard shortcut
@@ -57,7 +57,7 @@ const CommandPalette = ({ open, onOpenChange }: CommandPaletteProps) => {
   }, [open, onOpenChange]);
 
   const go = (path: string) => {
-    navigate(path);
+    router.push(path);
     onOpenChange(false);
   };
 

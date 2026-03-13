@@ -9,7 +9,6 @@ import { Plus, Loader2, AlertTriangle, Phone, Mail, MapPin, IndianRupee, User, S
 import { useCreateLead, useAgents } from '@/hooks/useCrmData';
 import { SOURCE_LABELS } from '@/types/crm';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { parseLeadText, type ParsedLead } from '@/lib/parseLeadText';
 
@@ -46,9 +45,14 @@ const QuickAddLead = () => {
 
   const checkDuplicate = async (phone: string) => {
     if (!phone || phone.length < 5) { setDuplicate(null); return; }
-    const { data } = await supabase.from('leads').select('id, name, status').eq('phone', phone).limit(1);
-    if (data && data.length > 0) setDuplicate(data[0]);
-    else setDuplicate(null);
+    try {
+      const res = await fetch(`/api/leads/check-duplicate?phone=${phone}`);
+      const data = await res.json();
+      if (data) setDuplicate(data);
+      else setDuplicate(null);
+    } catch (e) {
+      setDuplicate(null);
+    }
   };
 
   const handleParse = useCallback((text: string) => {
@@ -72,7 +76,7 @@ const QuickAddLead = () => {
   const getAutoAgent = () => {
     if (!agents || agents.length === 0) return null;
     if (form.assigned_agent_id) return form.assigned_agent_id;
-    return agents[0]?.id || null;
+    return (agents[0] as any)?.id || null;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,9 +95,9 @@ const QuickAddLead = () => {
         email: (mode === 'smart' ? (parsed?.email || form.email) : form.email).trim() || null,
         source: form.source as any,
         budget: (mode === 'smart' ? (parsed?.budget || form.budget) : form.budget).trim() || null,
-        preferred_location: (mode === 'smart' ? (parsed?.preferred_location || form.preferred_location) : form.preferred_location).trim() || null,
+        preferredLocation: (mode === 'smart' ? (parsed?.preferred_location || form.preferred_location) : form.preferred_location).trim() || null,
         notes: (mode === 'smart' ? (parsed?.notes || form.notes) : form.notes).trim() || null,
-        assigned_agent_id: getAutoAgent(),
+        assignedAgentId: getAutoAgent(),
         status: 'new',
       });
       toast.success('Lead created!');
@@ -103,6 +107,7 @@ const QuickAddLead = () => {
       toast.error(err.message || 'Failed to create lead');
     }
   };
+
 
   const fields = parsed ? [
     { icon: User, label: 'Name', value: parsed.name, conf: parsed.confidence.name, color: 'text-primary' },

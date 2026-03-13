@@ -2,7 +2,6 @@ import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Upload, FileSpreadsheet, Check } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
 const LEAD_FIELDS = [
@@ -12,7 +11,7 @@ const LEAD_FIELDS = [
   { key: 'email', label: 'Email' },
   { key: 'source', label: 'Source' },
   { key: 'budget', label: 'Budget' },
-  { key: 'preferred_location', label: 'Location' },
+  { key: 'preferredLocation', label: 'Location' },
   { key: 'notes', label: 'Notes' },
 ];
 
@@ -37,7 +36,7 @@ const CsvImport = ({ onComplete }: { onComplete?: () => void }) => {
       const autoMap: Record<number, string> = {};
       lines[0].forEach((h, i) => {
         const lower = h.toLowerCase();
-        const match = LEAD_FIELDS.find(f => f.key !== 'skip' && (lower.includes(f.key) || lower.includes(f.label.toLowerCase())));
+        const match = LEAD_FIELDS.find(f => f.key !== 'skip' && (lower.includes(f.key.toLowerCase()) || lower.includes(f.label.toLowerCase())));
         if (match) autoMap[i] = match.key;
       });
       setMapping(autoMap);
@@ -66,14 +65,16 @@ const CsvImport = ({ onComplete }: { onComplete?: () => void }) => {
         return lead;
       }).filter(l => l.name && l.phone);
 
-      const batchSize = 50;
-      for (let i = 0; i < leads.length; i += batchSize) {
-        const batch = leads.slice(i, i + batchSize);
-        const { error } = await supabase.from('leads').insert(batch as any);
-        if (error) throw error;
-      }
+      const res = await fetch('/api/leads/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads }),
+      });
 
-      toast.success(`${leads.length} leads imported successfully!`);
+      if (!res.ok) throw new Error('Bulk import failed');
+      const data = await res.json();
+
+      toast.success(`${data.count || leads.length} leads imported successfully!`);
       setStep('done');
       onComplete?.();
     } catch (err: any) {
@@ -82,6 +83,7 @@ const CsvImport = ({ onComplete }: { onComplete?: () => void }) => {
       setImporting(false);
     }
   };
+
 
   if (step === 'upload' || step === 'done') {
     return (

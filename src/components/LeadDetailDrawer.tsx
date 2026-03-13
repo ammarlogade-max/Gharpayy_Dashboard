@@ -13,7 +13,6 @@ import { useBookingsByLead } from '@/hooks/useBookings';
 import { format, formatDistanceToNow } from 'date-fns';
 import { Phone, Mail, MapPin, IndianRupee, Clock, MessageCircle, CalendarCheck, User, Star, Send, Bell, ArrowRightLeft, Eye, Activity, Sparkles, Loader2, Receipt } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 
 interface Props {
   lead: LeadWithRelations | null;
@@ -52,16 +51,18 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
     setAiLoading(true);
     setAiSummary(null);
     try {
-      const { data, error } = await supabase.functions.invoke('ai-lead-summary', {
-        body: {
+      const res = await fetch('/api/ai/lead-summary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           lead: { ...lead, agent_name: lead.agents?.name },
           conversations: conversations?.slice(0, 5),
           visits: [],
-          bookings: bookings?.map((b: any) => ({ property_name: b.properties?.name, booking_status: b.booking_status, monthly_rent: b.monthly_rent })),
-        },
+          bookings: bookings?.map((b: any) => ({ property_name: b.properties?.name, booking_status: b.bookingStatus, monthly_rent: b.monthlyRent })),
+        }),
       });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
+      if (!res.ok) throw new Error('AI analysis failed');
+      const data = await res.json();
       setAiSummary(data);
     } catch (e: any) {
       toast.error(e.message || 'AI analysis failed');
@@ -73,7 +74,7 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
   if (!lead) return null;
 
   const stage = PIPELINE_STAGES.find(s => s.key === lead.status);
-  const score = (lead as any).lead_score ?? 0;
+  const score = lead.leadScore ?? 0;
 
   const handleStatusChange = async (status: string) => {
     try {
@@ -84,7 +85,7 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
 
   const handleAgentChange = async (agentId: string) => {
     try {
-      await updateLead.mutateAsync({ id: lead.id, assigned_agent_id: agentId });
+      await updateLead.mutateAsync({ id: lead.id, assignedAgentId: agentId });
       toast.success('Agent reassigned');
     } catch (err: any) { toast.error(err.message); }
   };
@@ -93,9 +94,9 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
     if (!reminderDate) { toast.error('Pick a date'); return; }
     try {
       await createFollowUp.mutateAsync({
-        lead_id: lead.id,
-        agent_id: lead.assigned_agent_id,
-        reminder_date: new Date(reminderDate).toISOString(),
+        leadId: lead.id,
+        agentId: lead.assignedAgentId,
+        reminderDate: new Date(reminderDate).toISOString(),
         note: note || null,
       });
       toast.success('Follow-up scheduled');
@@ -117,6 +118,7 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
   return (
     <Sheet open={open} onOpenChange={onClose}>
       <SheetContent className="w-full sm:max-w-[520px] overflow-y-auto p-0">
+
         <div className="p-6 border-b border-border">
           <SheetHeader>
             <div className="flex items-start justify-between">
@@ -144,9 +146,9 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
                 <Mail size={12} /> {lead.email}
               </div>
             )}
-            {lead.preferred_location && (
+            {lead.preferredLocation && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <MapPin size={12} /> {lead.preferred_location}
+                <MapPin size={12} /> {lead.preferredLocation}
               </div>
             )}
             {lead.budget && (
@@ -155,10 +157,10 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
               </div>
             )}
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Clock size={12} /> {lead.first_response_time_min != null ? `${lead.first_response_time_min}m response` : 'No response yet'}
+              <Clock size={12} /> {(lead as any).firstResponseTimeMin != null ? `${(lead as any).firstResponseTimeMin}m response` : 'No response yet'}
             </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <User size={12} /> {lead.agents?.name || 'Unassigned'}
+              <User size={12} /> {(lead as any).agents?.name || 'Unassigned'}
             </div>
           </div>
 
@@ -175,13 +177,14 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
             </div>
             <div>
               <label className="text-[10px] text-muted-foreground mb-1 block">Assign Agent</label>
-              <Select value={lead.assigned_agent_id || ''} onValueChange={handleAgentChange}>
+              <Select value={lead.assignedAgentId || ''} onValueChange={handleAgentChange}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Select" /></SelectTrigger>
                 <SelectContent>
                   {agents?.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
+
           </div>
 
           {/* AI Summary */}
@@ -266,21 +269,21 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
               </div>
               <div>
                 <p className="font-medium text-foreground text-xs">Lead created</p>
-                <p className="text-[10px] text-muted-foreground">{format(new Date(lead.created_at), 'MMM d, yyyy h:mm a')}</p>
+                <p className="text-[10px] text-muted-foreground">{format(new Date(lead.createdAt), 'MMM d, yyyy h:mm a')}</p>
                 <p className="text-[10px]">Source: {SOURCE_LABELS[lead.source as keyof typeof SOURCE_LABELS]}</p>
               </div>
             </div>
 
             {(!activityLog || activityLog.length === 0) && (
               <>
-                {lead.first_response_time_min != null && (
+                {lead.firstResponseTimeMin != null && (
                   <div className="flex items-start gap-3 p-3 rounded-lg bg-secondary/50">
                     <div className="w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center shrink-0 mt-0.5">
                       <Clock size={10} className="text-emerald-600" />
                     </div>
                     <div>
                       <p className="font-medium text-foreground text-xs">First response</p>
-                      <p className="text-[10px]">{lead.first_response_time_min} minutes after creation</p>
+                      <p className="text-[10px]">{lead.firstResponseTimeMin} minutes after creation</p>
                     </div>
                   </div>
                 )}
@@ -304,7 +307,7 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
                 <div key={c.id} className={`p-3 rounded-lg text-xs ${c.direction === 'inbound' ? 'bg-secondary/50' : 'bg-primary/5 border border-primary/10'}`}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-medium text-foreground capitalize">{c.direction === 'inbound' ? lead.name : 'Agent'}</span>
-                    <span className="text-[10px] text-muted-foreground">{format(new Date(c.created_at), 'MMM d, h:mm a')}</span>
+                    <span className="text-[10px] text-muted-foreground">{format(new Date(c.createdAt), 'MMM d, h:mm a')}</span>
                   </div>
                   <p className="text-muted-foreground">{c.message}</p>
                   <Badge variant="outline" className="text-[9px] mt-1">{c.channel}</Badge>
@@ -316,13 +319,13 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
           <TabsContent value="followups" className="mt-4 space-y-4">
             <div className="space-y-2">
               {followUps?.map(f => (
-                <div key={f.id} className={`p-3 rounded-lg border text-xs ${f.is_completed ? 'bg-secondary/30 border-border' : 'bg-warning/5 border-warning/20'}`}>
+                <div key={f.id} className={`p-3 rounded-lg border text-xs ${f.isCompleted ? 'bg-secondary/30 border-border' : 'bg-warning/5 border-warning/20'}`}>
                   <div className="flex items-center justify-between">
                     <span className="font-medium text-foreground flex items-center gap-1">
-                      <Bell size={10} /> {format(new Date(f.reminder_date), 'MMM d, h:mm a')}
+                      <Bell size={10} /> {format(new Date(f.reminderDate), 'MMM d, h:mm a')}
                     </span>
-                    <Badge variant={f.is_completed ? 'secondary' : 'default'} className="text-[9px]">
-                      {f.is_completed ? 'Done' : 'Pending'}
+                    <Badge variant={f.isCompleted ? 'secondary' : 'default'} className="text-[9px]">
+                      {f.isCompleted ? 'Done' : 'Pending'}
                     </Badge>
                   </div>
                   {f.note && <p className="text-muted-foreground mt-1">{f.note}</p>}
@@ -349,3 +352,4 @@ const LeadDetailDrawer = ({ lead, open, onClose }: Props) => {
 };
 
 export default LeadDetailDrawer;
+
