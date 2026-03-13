@@ -73,6 +73,7 @@ async function connectToDatabase() {
         const opts = {
             bufferCommands: false
         };
+        console.log('Connecting to MongoDB with URI:', MONGODB_URI?.split('@').pop() || 'NOT FOUND');
         cached.promise = __TURBOPACK__imported__module__$5b$externals$5d2f$mongoose__$5b$external$5d$__$28$mongoose$2c$__cjs$2c$__$5b$project$5d2f$node_modules$2f$mongoose$29$__["default"].connect(MONGODB_URI, opts).then((mongoose)=>{
             return mongoose;
         });

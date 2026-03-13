@@ -97,6 +97,7 @@ async function connectToDatabase() {
         const opts = {
             bufferCommands: false
         };
+        console.log('Connecting to MongoDB with URI:', MONGODB_URI?.split('@').pop() || 'NOT FOUND');
         cached.promise = __TURBOPACK__imported__module__$5b$externals$5d2f$mongoose__$5b$external$5d$__$28$mongoose$2c$__cjs$2c$__$5b$project$5d2f$node_modules$2f$mongoose$29$__["default"].connect(MONGODB_URI, opts).then((mongoose)=>{
             return mongoose;
         });
@@ -168,9 +169,43 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$models$2f$User$2e$ts_
 ;
 ;
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret_change_me';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'gharpayy@123';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin!123admin@123admin';
 async function POST(req) {
     try {
-        const { email, password } = await req.json();
+        const { email: rawEmail, password } = await req.json();
+        const email = rawEmail?.trim();
+        console.log('Login attempt for:', email);
+        console.log('Expected Admin:', ADMIN_USERNAME);
+        // Check .env credentials first
+        if (email === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
+            console.log('Admin match found, skipping DB');
+            const token = __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$jsonwebtoken$2f$index$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__["default"].sign({
+                userId: 'admin-id-static',
+                email: ADMIN_USERNAME,
+                role: 'admin'
+            }, JWT_SECRET, {
+                expiresIn: '7d'
+            });
+            const cookieStore = await (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$headers$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__["cookies"])();
+            cookieStore.set('auth_token', token, {
+                httpOnly: true,
+                secure: ("TURBOPACK compile-time value", "development") === 'production',
+                sameSite: 'lax',
+                maxAge: 60 * 60 * 24 * 7,
+                path: '/'
+            });
+            return __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$server$2e$js__$5b$app$2d$route$5d$__$28$ecmascript$29$__["NextResponse"].json({
+                message: 'Logged in successfully',
+                user: {
+                    id: 'admin-id-static',
+                    email: ADMIN_USERNAME,
+                    fullName: 'Administrator',
+                    role: 'admin'
+                }
+            });
+        }
+        // Fallback to database
         await (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$mongodb$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["default"])();
         const user = await __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$models$2f$User$2e$ts__$5b$app$2d$route$5d$__$28$ecmascript$29$__["default"].findOne({
             email

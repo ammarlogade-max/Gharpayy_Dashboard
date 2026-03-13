@@ -17,6 +17,18 @@ export async function GET() {
 
     const decoded: any = jwt.verify(token, JWT_SECRET);
     
+    // Handle virtual admin
+    if (decoded.userId === 'admin-id-static') {
+      return NextResponse.json({
+        user: {
+          id: 'admin-id-static',
+          email: decoded.email,
+          fullName: 'Administrator',
+          role: 'admin'
+        }
+      });
+    }
+
     await connectToDatabase();
     const user = await User.findById(decoded.userId).select('-password');
 
