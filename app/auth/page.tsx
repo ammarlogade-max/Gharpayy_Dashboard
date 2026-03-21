@@ -10,8 +10,8 @@ import { Lock, User, Eye, EyeOff } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const Auth = () => {
-  const [username, setUsername] = useState('zone1admin@gharpayy');
-  const [password, setPassword] = useState('12345678');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -115,14 +115,14 @@ const Auth = () => {
               <Label className="text-2xs">Username</Label>
               <div className="relative">
                 <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-9 h-11 rounded-xl" placeholder="zone1admin@gharpayy" value={username} onChange={e => setUsername(e.target.value)} required />
+                <Input className="pl-9 h-11 rounded-xl" placeholder="Enter username" value={username} onChange={e => setUsername(e.target.value)} required />
               </div>
             </div>
             <div className="space-y-1.5">
               <Label className="text-2xs">Password</Label>
               <div className="relative">
                 <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input className="pl-9 pr-9 h-11 rounded-xl" type={showPassword ? 'text' : 'password'} placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
+                <Input className="pl-9 pr-9 h-11 rounded-xl" type={showPassword ? 'text' : 'password'} placeholder="Enter password" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
                 <button type="button" className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors" onClick={() => setShowPassword(!showPassword)}>
                   {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
