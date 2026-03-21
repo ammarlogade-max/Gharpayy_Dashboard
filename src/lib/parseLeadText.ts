@@ -212,6 +212,6 @@ function cleanupField(value: string): string {
   if (!value) return '';
   return value
     .replace(/\s+/g, ' ')
-    .replace(/^[-:.,\s]+|[-:.,\s]+$/g, '')
+    .replace(/^(?:-|:|\.|,|\s)+|(?:-|:|\.|,|\s)+$/g, '')
     .trim();
 }
