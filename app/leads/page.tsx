@@ -343,7 +343,6 @@ const Leads = () => {
                   {/* Row 1: Name + phone + key badges */}
                   <div className="lead-row" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                     <span className="lead-name" style={{ fontSize: 14, fontWeight: 700, color: T.hi, fontFamily: T.sans }}>{lead.name}</span>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: T.dim, fontFamily: T.mono, opacity: 0.8 }}>L-{lead.id.slice(-6).toUpperCase()}</span>
                     {lead.phone && <span className="lead-phone" style={{ fontFamily: T.mono, fontSize: 11, color: T.acc, fontWeight: 500 }}>{lead.phone}</span>}
                     {lead.isDuplicate && <span className="lead-badge" style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: 'rgba(251,146,60,0.1)', color: '#ea580c', border: '1px solid rgba(251,146,60,0.3)', fontWeight: 600 }}>Duplicate</span>}
 
@@ -388,7 +387,8 @@ const Leads = () => {
                 </div>
 
                 {/* Right side: date + actions */}
-                <div className="lead-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+                <div className="lead-right" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                  <span style={{ fontSize: 9.5, fontWeight: 700, color: T.dim, fontFamily: T.mono, opacity: 0.8 }}>L-{lead.id.slice(-6).toUpperCase()}</span>
                   <span className="lead-date" style={{ fontSize: 9.5, color: T.dim, fontFamily: T.mono }}>{created}</span>
                   <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
                     <a href={`tel:${lead.phone}`} style={{ padding: 5, borderRadius: 6, background: T.bg2, border: `1px solid ${T.line}`, display: 'flex' }} title="Call">
