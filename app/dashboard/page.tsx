@@ -69,7 +69,7 @@ const Dashboard = () => {
 
   if (statsLoading || leadsLoading) {
     return (
-      <AppLayout title="Dashboard" subtitle="Real-time overview of your sales pipeline">
+      <AppLayout title="Dashboard" subtitle="Real-time overview of your sales pipeline" showQuickAddLead={false}>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-[130px] rounded-2xl" />)}
         </div>
@@ -78,7 +78,7 @@ const Dashboard = () => {
   }
 
   return (
-    <AppLayout title="Dashboard" subtitle="Real-time overview of your sales pipeline">
+    <AppLayout title="Dashboard" subtitle="Real-time overview of your sales pipeline" showQuickAddLead={false}>
       {/* Onboarding */}
       <OnboardingCard />
 

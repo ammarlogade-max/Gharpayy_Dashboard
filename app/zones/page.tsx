@@ -123,7 +123,7 @@ const ZoneManagement = () => {
   }
 
   return (
-    <AppLayout title="Zone Management" subtitle="Geographic routing, team queues & escalations">
+    <AppLayout title="Zone Management" subtitle="Geographic routing, team queues & escalations" showQuickAddLead={false}>
       <Tabs defaultValue="zones">
         <TabsList className="mb-6">
           <TabsTrigger value="zones" className="text-xs gap-1.5"><Map size={12} /> Zones</TabsTrigger>

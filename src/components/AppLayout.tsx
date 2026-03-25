@@ -2,7 +2,6 @@ import { ReactNode, useEffect, useState } from 'react';
 import AppSidebar from './AppSidebar';
 import CommandPalette from './CommandPalette';
 import NotificationBell from './NotificationBell';
-import QuickAddLead from './QuickAddLead';
 import { Menu, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -83,7 +82,6 @@ const AppLayout = ({ children, title, subtitle, actions, showQuickAddLead = true
       </div>
 
       <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
-      {showQuickAddLead && <QuickAddLead />}
     </div>
   );
 };
