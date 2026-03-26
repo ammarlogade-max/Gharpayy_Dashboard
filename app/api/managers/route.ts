@@ -15,7 +15,7 @@ export async function GET() {
     await connectToDatabase();
 
     // Get all managers with their details
-    const managers = await User.find({ role: 'manager' })
+    const managers = await User.find({ role: 'manager', status: { $in: ['active', 'inactive'] } })
       .select('-password')
       .populate('adminIds', '-password')
       .sort({ fullName: 1 });
@@ -26,7 +26,9 @@ export async function GET() {
       fullName: manager.fullName,
       email: manager.email,
       phone: manager.phone,
-      admins: manager.adminIds?.map((admin: any) => ({
+      admins: (manager.adminIds || [])
+        .filter((admin: any) => ['active', 'inactive'].includes(admin?.status || 'active'))
+        .map((admin: any) => ({
         id: admin._id,
         username: admin.username,
         fullName: admin.fullName,
@@ -34,7 +36,7 @@ export async function GET() {
         phone: admin.phone,
         zones: admin.zones || [],
         role: admin.role,
-      })) || [],
+      })),
       createdAt: manager.createdAt,
     }));
 

@@ -54,6 +54,7 @@ interface RoleUser {
   phone: string;
   username: string;
   role: string;
+  status?: string;
   zones: string[];
   admins?: RoleUser[];
   members?: RoleUser[];
@@ -482,6 +483,11 @@ function RolesTab() {
   const [editForm, setEditForm] = useState({ fullName: '', email: '', phone: '' });
   const [updating, setUpdating] = useState(false);
 
+  const isRoleVisibleUser = (u: any) => {
+    const s = (u?.status || 'active').toLowerCase();
+    return s === 'active' || s === 'inactive';
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -491,9 +497,18 @@ function RolesTab() {
         fetch('/api/members'),
         fetch('/api/zones'),
       ]);
-      if (mRes.ok) setManagers(await mRes.json());
-      if (aRes.ok) setAdmins(await aRes.json());
-      if (memRes.ok) setMembers(await memRes.json());
+      if (mRes.ok) {
+        const data = await mRes.json();
+        setManagers((data || []).filter(isRoleVisibleUser));
+      }
+      if (aRes.ok) {
+        const data = await aRes.json();
+        setAdmins((data || []).filter(isRoleVisibleUser));
+      }
+      if (memRes.ok) {
+        const data = await memRes.json();
+        setMembers((data || []).filter(isRoleVisibleUser));
+      }
       if (zRes.ok) {
         const raw = await zRes.json();
         setZones((raw || []).map((z: any) => ({ id: z.id || z._id, name: z.name })));

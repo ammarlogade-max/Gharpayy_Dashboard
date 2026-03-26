@@ -16,7 +16,7 @@ export async function GET() {
     let members;
     if (['super_admin', 'manager', 'member'].includes(authUser.role)) {
       // Super Admin, manager, and member see all members
-      members = await User.find({ role: 'member' })
+      members = await User.find({ role: 'member', status: { $in: ['active', 'inactive'] } })
         .select('-password')
         .populate('adminId', 'fullName email username')
         .sort({ fullName: 1 });
@@ -42,7 +42,7 @@ export async function GET() {
         (adminUser?.zones || []).map((z: any) => String(z).trim().toLowerCase())
       );
 
-      const allMembers = await User.find({ role: 'member' })
+      const allMembers = await User.find({ role: 'member', status: { $in: ['active', 'inactive'] } })
         .select('-password')
         .populate('adminId', 'fullName email username')
         .sort({ fullName: 1 });

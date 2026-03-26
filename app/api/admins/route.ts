@@ -16,7 +16,7 @@ export async function GET() {
 
     await connectToDatabase();
 
-    const query = { role: 'admin' };
+    const query = { role: 'admin', status: { $in: ['active', 'inactive'] } };
     const admins = await User.find(query)
       .select('-password')
       .populate('adminIds', '-password')
@@ -32,7 +32,9 @@ export async function GET() {
       zones: admin.zones || [],
       role: admin.role,
       managerId: admin.managerId,
-      members: admin.adminIds?.map((member: any) => ({
+      members: (admin.adminIds || [])
+        .filter((member: any) => ['active', 'inactive'].includes(member?.status || 'active'))
+        .map((member: any) => ({
         id: member._id,
         name: member.fullName,
         email: member.email,
@@ -40,7 +42,7 @@ export async function GET() {
         username: member.username,
         zones: member.zones || [],
         isActive: true,
-      })) || [],
+      })),
       createdAt: admin.createdAt,
     }));
 
