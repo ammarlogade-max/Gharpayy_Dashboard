@@ -9,9 +9,10 @@ import { Label } from '@/components/ui/label';
 import { useAgents } from '@/hooks/useCrmData';
 import { useAuth } from '@/contexts/AuthContext';
 import { SuperAdminSettingsPanel } from '@/components/SuperAdminSettingsPanel';
+import { CreatorLeaderboardPanel } from '@/components/CreatorLeaderboardPanel';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { KeyRound, UserCog, User, Save } from 'lucide-react';
+import { KeyRound, UserCog, User, Save, Trophy } from 'lucide-react';
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -46,17 +47,18 @@ const SettingsPage = () => {
         transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
       >
         <Tabs defaultValue={isManager ? 'admins' : isAdmin ? 'members' : 'profile'} className="space-y-6">
-          <TabsList className="flex flex-wrap h-auto gap-2 w-full max-w-full bg-transparent p-0">
+          <TabsList className="flex flex-nowrap justify-start h-auto gap-2 w-full max-w-full overflow-x-auto bg-transparent p-0 pb-1">
             {isManager && (
-              <TabsTrigger value="admins" className="text-xs gap-1.5 data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><UserCog size={13} /> Admins</TabsTrigger>
+              <TabsTrigger value="admins" className="shrink-0 text-[11px] sm:text-xs px-2.5 sm:px-3 gap-1.5 whitespace-nowrap data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><UserCog size={13} /> Admins</TabsTrigger>
             )}
             {isAdmin && (
-              <TabsTrigger value="members" className="text-xs gap-1.5 data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><UserCog size={13} /> Members</TabsTrigger>
+              <TabsTrigger value="members" className="shrink-0 text-[11px] sm:text-xs px-2.5 sm:px-3 gap-1.5 whitespace-nowrap data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><UserCog size={13} /> Members</TabsTrigger>
             )}
             {!isManager && !isAdmin && !isMember && (
-              <TabsTrigger value="team" className="text-xs gap-1.5 data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><UserCog size={13} /> Team</TabsTrigger>
+              <TabsTrigger value="team" className="shrink-0 text-[11px] sm:text-xs px-2.5 sm:px-3 gap-1.5 whitespace-nowrap data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><UserCog size={13} /> Team</TabsTrigger>
             )}
-            <TabsTrigger value="profile" className="text-xs gap-1.5 data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><User size={13} /> Profile</TabsTrigger>
+            <TabsTrigger value="profile" className="shrink-0 text-[11px] sm:text-xs px-2.5 sm:px-3 gap-1.5 whitespace-nowrap data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><User size={13} /> Profile</TabsTrigger>
+            <TabsTrigger value="leaderboard" className="shrink-0 text-[11px] sm:text-xs px-2.5 sm:px-3 gap-1.5 whitespace-nowrap data-[state=active]:bg-primary/10 data-[state=active]:text-primary border bg-background"><Trophy size={13} /> Leaderboard</TabsTrigger>
           </TabsList>
 
           {!isManager && !isAdmin && !isMember && (
@@ -74,6 +76,9 @@ const SettingsPage = () => {
               <AdminsTab />
             </TabsContent>
           )}
+          <TabsContent value="leaderboard">
+            <CreatorLeaderboardPanel />
+          </TabsContent>
           <TabsContent value="profile">
             <ProfileTab user={user || {}} />
           </TabsContent>

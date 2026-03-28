@@ -26,8 +26,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { Plus, Loader2, MoreVertical, UserPlus, Users, Shield, User, ChevronRight, KeyRound, Pencil, MapPin } from 'lucide-react';
+import { Plus, Loader2, MoreVertical, UserPlus, Users, Shield, User, ChevronRight, KeyRound, Pencil, MapPin, Trophy } from 'lucide-react';
 import { LoginActivityTab, LeadActivityTab } from '@/components/ActivityTabs';
+import { CreatorLeaderboardPanel } from '@/components/CreatorLeaderboardPanel';
 import { useAuth } from '@/contexts/AuthContext';
 
 /* ========== Types ========== */
@@ -69,22 +70,23 @@ interface ZoneOption {
 
 /* ========== Main Panel ========== */
 export function SuperAdminSettingsPanel() {
-  const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'profiles' | 'activity'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'profiles' | 'activity' | 'leaderboard'>('users');
 
   return (
     <div className="space-y-6">
       {/* Top-level Tabs */}
-      <div className="flex gap-1 border-b">
+      <div className="flex flex-nowrap gap-1 border-b overflow-x-auto pb-1">
         {[
           { id: 'users', label: 'Users', icon: Users },
           { id: 'roles', label: 'Roles', icon: Shield },
           { id: 'profiles', label: 'Profiles', icon: User },
           { id: 'activity', label: 'Activity', icon: KeyRound },
+          { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
         ].map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`flex items-center gap-2 px-4 py-2.5 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
+            className={`shrink-0 flex items-center gap-1.5 px-2.5 sm:px-4 py-2 sm:py-2.5 font-medium text-[11px] sm:text-sm border-b-2 transition-colors whitespace-nowrap ${
               activeTab === tab.id
                 ? 'border-accent text-accent'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -98,6 +100,7 @@ export function SuperAdminSettingsPanel() {
 
       {activeTab === 'users' && <UsersTab />}
       {activeTab === 'roles' && <RolesTab />}
+      {activeTab === 'leaderboard' && <CreatorLeaderboardPanel compact />}
       {activeTab === 'profiles' && <ProfilesTab />}
       {activeTab === 'activity' && <ActivityTab />}
     </div>

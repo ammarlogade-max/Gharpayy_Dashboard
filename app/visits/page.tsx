@@ -115,36 +115,38 @@ const Visits = () => {
       <div>
         <h2 className="font-display font-semibold text-xs text-foreground mb-4">Completed Visits</h2>
         <div className="kpi-card p-0 overflow-hidden">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-border bg-secondary/30">
-                <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Lead</th>
-                <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Property</th>
-                <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Date</th>
-                <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Staff</th>
-                <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Outcome</th>
-              </tr>
-            </thead>
-            <tbody>
-              {past.map(visit => (
-                <tr key={visit.id} className="border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
-                  <td className="px-4 py-3.5 font-medium text-foreground">{(visit.leads as any)?.name}</td>
-                  <td className="px-4 py-3.5 text-2xs text-muted-foreground">{(visit.properties as any)?.name}</td>
-                  <td className="px-4 py-3.5 text-2xs text-muted-foreground">{format(new Date(visit.scheduledAt), 'MMM d, h:mm a')}</td>
-                  <td className="px-4 py-3.5 text-2xs text-muted-foreground">{(visit.members as any)?.name}</td>
-                  <td className="px-4 py-3.5">
-                    <span className="flex items-center gap-1 text-2xs capitalize">
-                      {visit.outcome && outcomeIcons[visit.outcome]}
-                      {visit.outcome?.replace('_', ' ')}
-                    </span>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-border bg-secondary/30">
+                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Lead</th>
+                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Property</th>
+                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Date</th>
+                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Staff</th>
+                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Outcome</th>
                 </tr>
-              ))}
-              {past.length === 0 && (
-                <tr><td colSpan={5} className="text-center py-10 text-xs text-muted-foreground">No completed visits yet</td></tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {past.map(visit => (
+                  <tr key={visit.id} className="border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
+                    <td className="px-4 py-3.5 font-medium text-foreground">{(visit.leads as any)?.name}</td>
+                    <td className="px-4 py-3.5 text-2xs text-muted-foreground">{(visit.properties as any)?.name}</td>
+                    <td className="px-4 py-3.5 text-2xs text-muted-foreground">{format(new Date(visit.scheduledAt), 'MMM d, h:mm a')}</td>
+                    <td className="px-4 py-3.5 text-2xs text-muted-foreground">{(visit.members as any)?.name}</td>
+                    <td className="px-4 py-3.5">
+                      <span className="flex items-center gap-1 text-2xs capitalize">
+                        {visit.outcome && outcomeIcons[visit.outcome]}
+                        {visit.outcome?.replace('_', ' ')}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {past.length === 0 && (
+                  <tr><td colSpan={5} className="text-center py-10 text-xs text-muted-foreground">No completed visits yet</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </AppLayout>

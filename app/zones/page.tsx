@@ -264,29 +264,31 @@ const ZoneManagement = () => {
           </div>
 
           <div className="kpi-card p-0 overflow-hidden">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border bg-secondary/30">
-                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Team</th>
-                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Zone</th>
-                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Owner</th>
-                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Dispatch</th>
-                  <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Members</th>
-                </tr>
-              </thead>
-              <tbody>
-                {queues?.map((q: any) => (
-                  <tr key={q.id} className="border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
-                    <td className="px-4 py-3.5 font-medium text-foreground">{q.team_name}</td>
-                    <td className="px-4 py-3.5 text-muted-foreground">{q.zones?.name}</td>
-                    <td className="px-4 py-3.5 text-muted-foreground">{q.members?.name || '—'}</td>
-                    <td className="px-4 py-3.5"><Badge variant="outline" className="text-[9px]">{q.dispatch_rule}</Badge></td>
-                    <td className="px-4 py-3.5 text-muted-foreground">{(q.member_ids || []).length} members</td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-secondary/30">
+                    <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Team</th>
+                    <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Zone</th>
+                    <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Owner</th>
+                    <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Dispatch</th>
+                    <th className="text-left px-4 py-3.5 text-2xs font-medium text-muted-foreground">Members</th>
                   </tr>
-                ))}
-                {queues?.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">No queues yet</td></tr>}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {queues?.map((q: any) => (
+                    <tr key={q.id} className="border-b border-border last:border-0 hover:bg-secondary/20 transition-colors">
+                      <td className="px-4 py-3.5 font-medium text-foreground">{q.team_name}</td>
+                      <td className="px-4 py-3.5 text-muted-foreground">{q.zones?.name}</td>
+                      <td className="px-4 py-3.5 text-muted-foreground">{q.members?.name || '—'}</td>
+                      <td className="px-4 py-3.5"><Badge variant="outline" className="text-[9px]">{q.dispatch_rule}</Badge></td>
+                      <td className="px-4 py-3.5 text-muted-foreground">{(q.member_ids || []).length} members</td>
+                    </tr>
+                  ))}
+                  {queues?.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">No queues yet</td></tr>}
+                </tbody>
+              </table>
+            </div>
           </div>
         </TabsContent>
 

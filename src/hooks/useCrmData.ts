@@ -30,6 +30,23 @@ export type LeadWithRelations = {
   lastActivityAt: string;
 };
 
+export type CreatorLeaderboardEntry = {
+  rank: number;
+  userId: string;
+  name: string;
+  role: 'manager' | 'admin' | 'member';
+  leadsCreated: number;
+  zones: { zone: string; count: number }[];
+};
+
+export type CreatorLeaderboardResponse = {
+  period: 'this_month' | 'all_time' | 'today' | 'last_30_days';
+  from: string | null;
+  to: string | null;
+  generatedAt: string;
+  rankings: CreatorLeaderboardEntry[];
+};
+
 
 // Leads (all)
 export const useLeads = () =>
@@ -249,6 +266,16 @@ export const useDashboardStats = () =>
       const res = await fetch('/api/dashboard/stats');
       if (!res.ok) throw new Error('Failed to fetch dashboard stats');
       return res.json();
+    },
+  });
+
+export const useCreatorLeaderboard = (period: 'this_month' | 'all_time' | 'today' | 'last_30_days' = 'this_month') =>
+  useQuery({
+    queryKey: ['creator-leaderboard', period],
+    queryFn: async () => {
+      const res = await fetch(`/api/leads/stats/by-creator?period=${period}`);
+      if (!res.ok) throw new Error('Failed to fetch leaderboard');
+      return res.json() as Promise<CreatorLeaderboardResponse>;
     },
   });
 

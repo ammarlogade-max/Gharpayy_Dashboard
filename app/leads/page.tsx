@@ -66,7 +66,6 @@ const Leads = () => {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterDuplicate, setFilterDuplicate] = useState<string>('all');
   const [filterZone, setFilterZone] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('newest');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
@@ -74,8 +73,8 @@ const Leads = () => {
   const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<LeadWithRelations | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   
-  // Date filter state
-  const [filterDateMode, setFilterDateMode] = useState<'all' | 'date' | 'month'>('all');
+  // Combined date/sort control
+  const [filterDateMode, setFilterDateMode] = useState<'newest' | 'oldest' | 'date' | 'month'>('newest');
   const [filterDate, setFilterDate] = useState<string>('');
   const [filterMonth, setFilterMonth] = useState<string>('');
   
@@ -111,8 +110,8 @@ const Leads = () => {
       if (filterDuplicate === 'unique' && l.isDuplicate) return false;
       if (filterZone !== 'all' && (l as any).zone !== filterZone) return false;
       
-      // Date filter logic - when a date filter is active, ONLY show leads with valid moveInDate
-      if (filterDateMode !== 'all') {
+      // Date filter logic - only active for by-date / by-month modes
+      if (filterDateMode === 'date' || filterDateMode === 'month') {
         // If no moveInDate, exclude the lead
         if (!l.moveInDate) return false;
         
@@ -144,14 +143,8 @@ const Leads = () => {
       return true;
     })
     .sort((a, b) => {
-      switch (sortBy) {
-        case 'newest': return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        case 'oldest': return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        case 'score_high': return (b.leadScore ?? 0) - (a.leadScore ?? 0);
-        case 'score_low': return (a.leadScore ?? 0) - (b.leadScore ?? 0);
-        case 'response': return (a.firstResponseTimeMin ?? 999) - (b.firstResponseTimeMin ?? 999);
-        default: return 0;
-      }
+      if (filterDateMode === 'oldest') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
   const toggleSelect = (id: string) => {
@@ -231,7 +224,7 @@ const Leads = () => {
         <div className="flex items-center justify-between">
           <Button variant="outline" size="sm" onClick={() => setShowFiltersMobile(!showFiltersMobile)} className="ml-1.5 md:ml-0 gap-2 h-8 text-xs rounded-xl md:hidden">
             <Filter size={14} /> Filters
-            {(!showFiltersMobile && (filterSource !== 'all' || filterStatus !== 'all' || sortBy !== 'newest' || filterDuplicate !== 'all' || filterZone !== 'all' || filterDateMode !== 'all')) && <div className="w-1.5 h-1.5 rounded-full bg-accent" />}
+            {(!showFiltersMobile && (filterSource !== 'all' || filterStatus !== 'all' || filterDuplicate !== 'all' || filterZone !== 'all' || filterDateMode !== 'newest')) && <div className="w-1.5 h-1.5 rounded-full bg-accent" />}
           </Button>
 
           {/* Desktop Filters */}
@@ -261,13 +254,14 @@ const Leads = () => {
               {officeZones?.map(z => <option key={z._id} value={z.name}>{z.name}</option>)}
             </select>
             
-            {/* Date Filter Mode */}
+            {/* Date + Sort mode */}
             <select value={filterDateMode} onChange={e => {
               setFilterDateMode(e.target.value as any);
               setFilterDate('');
               setFilterMonth('');
             }} className="shrink-0 text-2xs bg-card border border-border rounded-xl px-3 py-2 text-foreground outline-none focus:ring-2 focus:ring-ring/30">
-              <option value="all">All Dates</option>
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
               <option value="date">By Date</option>
               <option value="month">By Month</option>
             </select>
@@ -292,10 +286,6 @@ const Leads = () => {
               />
             )}
             
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="shrink-0 text-2xs bg-card border border-border rounded-xl px-3 py-2 text-foreground outline-none focus:ring-2 focus:ring-ring/30">
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-            </select>
           </div>
 
           <Button variant="outline" size="sm" className="mr-1.5 md:mr-0 h-[30px] md:h-8 gap-1.5 text-xs md:text-2xs rounded-lg md:rounded-xl px-3 ml-auto shrink-0" onClick={handleExport}>
@@ -330,13 +320,14 @@ const Leads = () => {
               {officeZones?.map(z => <option key={z._id} value={z.name}>{z.name}</option>)}
             </select>
             
-            {/* Date Filter Mode */}
+            {/* Date + Sort mode */}
             <select value={filterDateMode} onChange={e => {
               setFilterDateMode(e.target.value as any);
               setFilterDate('');
               setFilterMonth('');
             }} className="w-full text-xs bg-card border border-border rounded-lg px-3 py-2 text-foreground outline-none">
-              <option value="all">All Dates</option>
+              <option value="newest">Newest First</option>
+              <option value="oldest">Oldest First</option>
               <option value="date">By Date</option>
               <option value="month">By Month</option>
             </select>
@@ -361,10 +352,6 @@ const Leads = () => {
               />
             )}
             
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="w-full text-xs bg-card border border-border rounded-lg px-3 py-2 text-foreground outline-none">
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-            </select>
           </motion.div>
         )}
       </div>
