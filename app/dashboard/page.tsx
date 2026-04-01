@@ -59,6 +59,8 @@ const Dashboard = () => {
   const newLeads = leads?.filter(l => l.status === 'new') || [];
   const hotLeads = leads?.filter(l => ((l as any).lead_score ?? 0) >= 70).slice(0, 5) || [];
   const overdueReminders = reminders?.filter(r => isPast(new Date(r.reminder_date))) || [];
+  const perEmployee = (stats as any)?.perEmployee || [];
+  const sortedPerEmployee = [...perEmployee].sort((a: any, b: any) => (b.leadsToday - a.leadsToday) || (b.toursToday - a.toursToday));
 
   const handleComplete = async (id: string) => {
     try {
@@ -98,15 +100,50 @@ const Dashboard = () => {
       <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6" variants={container} initial="hidden" animate="show">
         <KpiCard title="Total Leads" value={stats?.totalLeads ?? 0} icon={<Users size={17} />} />
         <KpiCard title="Avg Response Time" value={stats?.avgResponseTime ?? 0} suffix="min" icon={<Clock size={17} />} color="hsl(var(--warning))" />
-        <KpiCard title="Visits Scheduled" value={stats?.visitsScheduled ?? 0} icon={<CalendarCheck size={17} />} color="hsl(173, 55%, 42%)" />
+        <KpiCard title="Tours Scheduled Today" value={stats?.toursScheduledToday ?? stats?.visitsScheduled ?? 0} icon={<CalendarCheck size={17} />} color="hsl(173, 55%, 42%)" />
         <KpiCard title="Bookings Closed" value={stats?.bookingsClosed ?? 0} icon={<CheckCircle size={17} />} color="hsl(var(--success))" />
       </motion.div>
       <motion.div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8" variants={container} initial="hidden" animate="show">
         <KpiCard title="Conversion Rate" value={stats?.conversionRate ?? 0} suffix="%" icon={<TrendingUp size={17} />} color="hsl(262, 55%, 55%)" />
         <KpiCard title="SLA Compliance" value={stats?.slaCompliance ?? 0} suffix="%" icon={<Timer size={17} />} color="hsl(var(--info))" />
-        <KpiCard title="New Today" value={stats?.newToday ?? 0} icon={<Users size={17} />} color="hsl(var(--destructive))" />
+        <KpiCard title="Leads Added Today" value={stats?.leadsToday ?? stats?.newToday ?? 0} icon={<Users size={17} />} color="hsl(var(--destructive))" />
         <KpiCard title="SLA Breaches" value={stats?.slaBreaches ?? 0} icon={<AlertTriangle size={17} />} color="hsl(0, 55%, 50%)" />
       </motion.div>
+
+      {/* Daily team numbers */}
+      <div className="kpi-card mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-display font-semibold text-xs text-foreground">Today - Per Employee</h3>
+            <p className="text-[10px] text-muted-foreground mt-0.5">Leads added and tours scheduled today</p>
+          </div>
+          <div className="text-[10px] text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
+            {sortedPerEmployee.length} members
+          </div>
+        </div>
+        {sortedPerEmployee.length === 0 ? (
+          <p className="text-2xs text-muted-foreground text-center py-6">No activity recorded today.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {sortedPerEmployee.map((row: any) => (
+              <div key={row.memberId} className="flex items-center justify-between p-3 rounded-xl bg-secondary/50">
+                <div>
+                  <p className="text-xs font-medium text-foreground">{row.name}</p>
+                  <p className="text-[10px] text-muted-foreground">{row.zoneName || 'No Zone'}</p>
+                </div>
+                <div className="flex items-center gap-3 text-[10px]">
+                  <span className="px-2 py-0.5 rounded-full bg-accent/10 text-accent font-semibold">
+                    Leads {row.leadsToday}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-info/10 text-info font-semibold">
+                    Tours {row.toursToday}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Revenue Forecast */}
       {bookingStats && (bookingStats.revenue > 0 || bookingStats.pendingRevenue > 0) && (
