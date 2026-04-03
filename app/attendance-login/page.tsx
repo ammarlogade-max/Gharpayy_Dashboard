@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ExternalLink, Lock, Mail } from "lucide-react";
+import { ExternalLink, Lock, Mail, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 
 const ATTENDANCE_URL = "https://gharpayy-core.vercel.app";
@@ -13,11 +13,34 @@ export default function AttendanceLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
     setLoading(true);
-    window.location.href = ATTENDANCE_URL;
+    try {
+      const res = await fetch("/api/integrations/attendance/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data?.error || "Login failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+      if (data?.redirectUrl) {
+        window.location.href = data.redirectUrl;
+        return;
+      }
+      setError("Login failed. Please try again.");
+    } catch (err: any) {
+      setError(err?.message || "Login failed. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -33,9 +56,16 @@ export default function AttendanceLogin() {
             Attendance Login
           </h1>
           <p className="text-xs text-muted-foreground mt-1">
-            This will open the ARENA OS attendance system.
+            Sign in to continue to ARENA OS attendance.
           </p>
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-xl border border-destructive/20 bg-destructive/5 px-3 py-2 text-[11px] text-destructive flex items-center gap-2">
+            <AlertTriangle size={14} />
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
@@ -73,7 +103,7 @@ export default function AttendanceLogin() {
             className="w-full h-11 rounded-xl bg-accent text-accent-foreground hover:bg-accent/90"
             disabled={loading}
           >
-            {loading ? "Redirecting..." : "Sign In & Continue"}
+            {loading ? "Signing in..." : "Sign In & Continue"}
           </Button>
         </form>
 
