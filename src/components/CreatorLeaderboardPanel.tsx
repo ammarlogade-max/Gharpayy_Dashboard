@@ -2,11 +2,14 @@
 
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Medal, Crown, Sparkles } from 'lucide-react';
+import { Trophy, Medal, Crown, Sparkles, CalendarDays } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { useCreatorLeaderboard, type CreatorLeaderboardEntry } from '@/hooks/useCrmData';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useCreatorLeaderboard, useOfficeZones, type CreatorLeaderboardEntry } from '@/hooks/useCrmData';
 import { useAuth } from '@/contexts/AuthContext';
 
 type LeaderboardPeriod = 'this_month' | 'all_time' | 'today' | 'last_30_days';
@@ -74,7 +77,43 @@ function PodiumCard({ item, index }: { item: CreatorLeaderboardEntry; index: num
 export function CreatorLeaderboardPanel({ compact = false }: { compact?: boolean }) {
   const { user } = useAuth();
   const [period, setPeriod] = useState<LeaderboardPeriod>('this_month');
-  const { data, isLoading, isError } = useCreatorLeaderboard(period);
+  const [selectedZone, setSelectedZone] = useState<string>('all');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const { data: officeZones } = useOfficeZones();
+
+  const handlePeriodSelect = (nextPeriod: LeaderboardPeriod) => {
+    setFromDate('');
+    setToDate('');
+    setPeriod(nextPeriod);
+  };
+
+  const hasValidCustomRange = useMemo(() => {
+    if (!fromDate || !toDate) return false;
+    return new Date(fromDate) <= new Date(toDate);
+  }, [fromDate, toDate]);
+
+  const customRange = useMemo(
+    () => (hasValidCustomRange ? { from: fromDate, to: toDate } : undefined),
+    [hasValidCustomRange, fromDate, toDate]
+  );
+
+  const effectivePeriod: LeaderboardPeriod | 'custom' = hasValidCustomRange ? 'custom' : period;
+  const { data, isLoading, isError } = useCreatorLeaderboard(effectivePeriod, selectedZone, customRange);
+
+  const zoneNames = useMemo(() => {
+    const names: string[] = (officeZones || [])
+      .map((zone: any) => String(zone?.name || '').trim())
+      .filter((name) => Boolean(name));
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [officeZones]);
+
+  const dateRangeLabel = useMemo(() => {
+    if (fromDate && toDate) return `${fromDate} to ${toDate}`;
+    if (fromDate) return `From ${fromDate}`;
+    if (toDate) return `To ${toDate}`;
+    return 'Date Range';
+  }, [fromDate, toDate]);
 
   const rankings = data?.rankings || [];
   const topThree = rankings.slice(0, 3);
@@ -94,21 +133,68 @@ export function CreatorLeaderboardPanel({ compact = false }: { compact?: boolean
               <Sparkles className="h-3.5 w-3.5 text-primary" />
               <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">Lead Legends</span>
             </div>
-            <h3 className="mt-2 text-lg font-semibold text-foreground">Lead Creator Leaderboard</h3>
-            <p className="text-xs text-muted-foreground">Ranking by number of leads added by each user.</p>
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Select value={selectedZone} onValueChange={setSelectedZone}>
+              <SelectTrigger className="h-7 w-[130px] text-[11px]">
+                <SelectValue placeholder="All zones" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All zones</SelectItem>
+                {zoneNames.map((zone) => (
+                  <SelectItem key={zone} value={zone}>{zone}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
             {PERIOD_OPTIONS.map((opt) => (
               <Button
                 key={opt.key}
                 variant={period === opt.key ? 'default' : 'outline'}
                 size="sm"
                 className="h-7 px-3 text-[11px]"
-                onClick={() => setPeriod(opt.key)}
+                onClick={() => handlePeriodSelect(opt.key)}
               >
                 {opt.label}
               </Button>
             ))}
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={hasValidCustomRange ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 min-w-[175px] justify-start px-2.5 text-[11px] font-normal"
+                >
+                  <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+                  <span className="truncate">{dateRangeLabel}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[260px] p-3">
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">From</p>
+                    <Input
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                      className="h-8 text-[11px]"
+                      aria-label="From date"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">To</p>
+                    <Input
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                      className="h-8 text-[11px]"
+                      aria-label="To date"
+                    />
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       </div>

@@ -2,7 +2,7 @@ import { NavLink } from '@/components/NavLink';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Kanban, CalendarCheck, BarChart3, Settings,
-  MessageSquare, History, X, Moon, Sun, Building2, Bed, TrendingUp,
+  MessageSquare, History, Trophy, X, Moon, Sun, Building2, Bed, TrendingUp,
   Map, Sparkles, Receipt, Globe, UserCircle
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
@@ -17,6 +17,7 @@ const salesItems = [
   { to: '/bookings', icon: Receipt, label: 'Bookings' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/historical', icon: History, label: 'Historical' },
+  { to: '/leaderboard', icon: Trophy, label: 'Leaderboard' },
 ];
 
 const supplyItems = [

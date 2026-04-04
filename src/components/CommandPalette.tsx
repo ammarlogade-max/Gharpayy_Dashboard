@@ -17,6 +17,7 @@ import {
   BarChart3,
   MessageSquare,
   History,
+  Trophy,
   Settings,
   Plus,
   Search,
@@ -37,6 +38,7 @@ const pages = [
   { name: 'Conversations', path: '/conversations', icon: MessageSquare },
   { name: 'Analytics', path: '/analytics', icon: BarChart3 },
   { name: 'Historical', path: '/historical', icon: History },
+  { name: 'Leaderboard', path: '/leaderboard', icon: Trophy },
   { name: 'Settings', path: '/settings', icon: Settings },
 ];
 
