@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { Loader2, Activity, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
+import { PIPELINE_STAGES } from '@/types/crm';
+import { usePipelineStages } from '@/hooks/useCrmData';
 
 export function LoginActivityTab() {
   const [activities, setActivities] = useState<any[]>([]);
@@ -133,6 +135,11 @@ export function LoginActivityTab() {
 }
 
 export function LeadActivityTab() {
+  const { data: pipelineStagesData } = usePipelineStages();
+  const pipelineStages = pipelineStagesData && pipelineStagesData.length > 0
+    ? pipelineStagesData
+    : PIPELINE_STAGES.map((s, i) => ({ ...s, order: i }));
+
   const [activities, setActivities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -196,6 +203,21 @@ export function LeadActivityTab() {
     a.click();
   };
 
+  const getStageLabel = (stageKey: string) => {
+    if (!stageKey) return 'None';
+    
+    // First try the dynamic pipeline stages
+    const dynamicStage = pipelineStagesData?.find((s: any) => s.key === stageKey);
+    if (dynamicStage) return dynamicStage.label;
+    
+    // Default fallback stages for historical records
+    const defaultStage = PIPELINE_STAGES.find((s) => s.key === stageKey);
+    if (defaultStage) return defaultStage.label;
+    
+    // Final fallback: nicely format the key
+    return stageKey.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
   const renderActionText = (act: any) => {
     switch (act.actionType) {
       case 'added':
@@ -205,7 +227,7 @@ export function LeadActivityTab() {
       case 'status_changed':
         return (
           <span>
-            Changed status from <span className="font-semibold">{act.details?.from || 'None'}</span> to <span className="font-semibold text-accent">{act.details?.to || 'None'}</span>
+            Changed status from <span className="font-semibold">{getStageLabel(act.details?.from)}</span> to <span className="font-semibold text-accent">{getStageLabel(act.details?.to)}</span>
           </span>
         );
       case 'assigned':
