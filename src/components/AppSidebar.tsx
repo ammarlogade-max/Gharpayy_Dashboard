@@ -81,7 +81,7 @@ const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => voi
             </div>
             <div>
               <h1 className="font-semibold text-[13px] tracking-tight" style={{ color: 'hsl(var(--sidebar-active-fg))' }}>Gharpayy</h1>
-              <p className="text-[9px] -mt-0.5" style={{ color: 'hsl(var(--sidebar-fg))' }}>Booking OS</p>
+              <p className="text-[9px] -mt-0.5" style={{ color: 'hsl(var(--sidebar-fg))' }}>Growth OS</p>
             </div>
           </div>
           <button className="lg:hidden p-1 rounded-md hover:bg-white/10 transition-colors" onClick={onClose}>
