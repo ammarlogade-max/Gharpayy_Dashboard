@@ -137,6 +137,7 @@ const Leads = () => {
   const leads = paginatedData?.leads;
   const totalLeads = paginatedData?.total ?? 0;
   const totalPages = Math.ceil(totalLeads / PAGE_SIZE);
+  const subtitleCount = `${totalLeads} leads found`;
   const { data: members } = useAgents();
   const { data: officeZones } = useOfficeZones();
   const { data: pipelineStagesData } = usePipelineStages();
@@ -246,6 +247,11 @@ const Leads = () => {
     a.click();
   };
 
+  const changePage = (nextPage: number) => {
+    setPage(nextPage);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  };
+
   if (isLoading) {
     return (
       <AppLayout title="All Leads" subtitle="Loading...">
@@ -255,7 +261,7 @@ const Leads = () => {
   }
 
   return (
-    <AppLayout title="All Leads" subtitle={`${filtered.length} leads found`} actions={<AddLeadDialog />}>
+    <AppLayout title="All Leads" subtitle={subtitleCount} actions={<AddLeadDialog />}>
       {/* Filters Area */}
       <div className="flex flex-col gap-3 mb-5">
         <div className="flex items-center justify-between">
@@ -1071,10 +1077,10 @@ const Leads = () => {
             Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalLeads)} of {totalLeads}
           </p>
           <div className="flex gap-1.5">
-            <Button variant="outline" size="sm" className="h-7 text-2xs rounded-lg" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+            <Button variant="outline" size="sm" className="h-7 text-2xs rounded-lg" disabled={page === 0} onClick={() => changePage(page - 1)}>
               Previous
             </Button>
-            <Button variant="outline" size="sm" className="h-7 text-2xs rounded-lg" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
+            <Button variant="outline" size="sm" className="h-7 text-2xs rounded-lg" disabled={page >= totalPages - 1} onClick={() => changePage(page + 1)}>
               Next
             </Button>
           </div>
