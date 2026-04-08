@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import AppLayout from '@/components/AppLayout';
 import LeadCard from '@/components/LeadCard';
 import LeadDetailDrawer from '@/components/LeadDetailDrawer';
 import EditLeadDialog from '@/components/EditLeadDialog';
-import { useLeads, usePipelineStages, useSavePipelineStages, useUpdateLead, type PipelineStageConfig } from '@/hooks/useCrmData';
+import { useLeadsInfinite, usePipelineStages, useSavePipelineStages, useUpdateLead, type PipelineStageConfig } from '@/hooks/useCrmData';
 import { PIPELINE_STAGES, type PipelineStage } from '@/types/crm';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -297,7 +297,13 @@ function EditStagesDialog({
 
 const Pipeline = () => {
   const { user } = useAuth();
-  const { data: leads, isLoading } = useLeads();
+  const {
+    data: leadsPages,
+    isLoading,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useLeadsInfinite(100);
   const { data: pipelineStagesData } = usePipelineStages();
   const savePipelineStages = useSavePipelineStages();
   const updateLead = useUpdateLead();
@@ -307,11 +313,33 @@ const Pipeline = () => {
   const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<LeadWithRelations | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editStagesOpen, setEditStagesOpen] = useState(false);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const leads = useMemo(
+    () => (leadsPages?.pages || []).flatMap((page) => page.leads),
+    [leadsPages]
+  );
   const pipelineStages: PipelineStageConfig[] =
     (pipelineStagesData && pipelineStagesData.length > 0)
       ? pipelineStagesData
       : PIPELINE_STAGES.map((stage, index) => ({ ...stage, order: index }));
   const canEditStages = user?.role === 'super_admin';
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      { root: null, rootMargin: '350px 0px', threshold: 0 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -333,11 +361,11 @@ const Pipeline = () => {
 
     return [];
   };
-  const activeLead = leads?.find(l => l.id === activeId);
+  const activeLead = leads.find(l => l.id === activeId);
 
   // Conversion rates between stages
   const conversionRates = useMemo(() => {
-    if (!leads) return {};
+    if (!leads.length) return {};
     const rates: Record<string, number> = {};
     for (let i = 0; i < pipelineStages.length - 1; i++) {
       const current = leads.filter(l => {
@@ -360,7 +388,7 @@ const Pipeline = () => {
     if (!over) return;
     const leadId = active.id as string;
     const newStatus = over.id as PipelineStage;
-    const lead = leads?.find(l => l.id === leadId);
+    const lead = leads.find(l => l.id === leadId);
     if (!lead || lead.status === newStatus) return;
     try {
       await updateLead.mutateAsync({ id: leadId, status: newStatus });
@@ -402,7 +430,7 @@ const Pipeline = () => {
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-2 min-w-max">
             {pipelineStages.map((stage, i) => {
-              const stageLeads = leads?.filter(l => l.status === stage.key) || [];
+              const stageLeads = leads.filter(l => l.status === stage.key);
               const rate = conversionRates[stage.key];
               return (
                 <div key={stage.key} className="flex items-start">
@@ -447,6 +475,10 @@ const Pipeline = () => {
               );
             })}
           </div>
+        </div>
+
+        <div ref={loadMoreRef} className="py-3 text-center text-xs text-muted-foreground">
+          {isFetchingNextPage ? 'Loading more leads...' : hasNextPage ? 'Scroll to load more leads' : 'All leads loaded'}
         </div>
 
         <DragOverlay
