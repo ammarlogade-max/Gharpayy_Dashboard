@@ -1,5 +1,5 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { heatmapData } from '@/lib/mock-data';
+import { heatmapData } from '../lib/mock-data';
 
 export function HourlyHeatmap() {
   const maxTours = Math.max(...heatmapData.map(d => d.tours));

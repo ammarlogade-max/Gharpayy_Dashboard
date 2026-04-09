@@ -1,5 +1,5 @@
-import { DateRange } from '@/lib/types';
-import { cn } from '@/lib/utils';
+import { DateRange } from '../lib/types';
+import { cn } from '../lib/utils';
 
 const options: { value: DateRange; label: string }[] = [
   { value: 'today', label: 'Today' },

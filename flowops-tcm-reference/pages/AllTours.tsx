@@ -1,7 +1,7 @@
-import { useAppState } from '@/lib/app-context';
-import { StatusBadge, OutcomeBadge } from '@/components/StatusBadge';
+import { useAppState } from '../lib/app-context';
+import { StatusBadge, OutcomeBadge } from '../components/StatusBadge';
 import { useState } from 'react';
-import { TourStatus, TourOutcome } from '@/lib/types';
+import { TourStatus, TourOutcome } from '../lib/types';
 
 export default function AllTours() {
   const { tours } = useAppState();

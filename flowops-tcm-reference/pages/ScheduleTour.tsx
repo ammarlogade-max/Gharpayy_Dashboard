@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useAppState } from '@/lib/app-context';
-import { zones, teamMembers } from '@/lib/mock-data';
-import { Tour, BookingSource, LeadType } from '@/lib/types';
+import { useAppState } from '../lib/app-context';
+import { zones, teamMembers } from '../lib/mock-data';
+import { Tour, BookingSource, LeadType } from '../lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';

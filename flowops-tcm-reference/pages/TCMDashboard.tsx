@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useAppState } from '@/lib/app-context';
-import { MetricCard } from '@/components/MetricCard';
-import { StatusBadge, OutcomeBadge } from '@/components/StatusBadge';
+import { useAppState } from '../lib/app-context';
+import { MetricCard } from '../components/MetricCard';
+import { StatusBadge, OutcomeBadge } from '../components/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { CalendarCheck, Phone, TrendingUp, FileText, Clock } from 'lucide-react';
-import { TourOutcome } from '@/lib/types';
+import { TourOutcome } from '../lib/types';
 import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
+import { cn } from '../lib/utils';
 
 export default function TCMDashboard() {
   const { tours, setTours } = useAppState();

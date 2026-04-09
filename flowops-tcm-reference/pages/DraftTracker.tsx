@@ -1,4 +1,4 @@
-import { useAppState } from '@/lib/app-context';
+import { useAppState } from '../lib/app-context';
 import { Phone, FileText } from 'lucide-react';
 
 export default function DraftTracker() {

@@ -1,5 +1,5 @@
-import { cn } from '@/lib/utils';
-import { TourStatus, TourOutcome } from '@/lib/types';
+import { cn } from '../lib/utils';
+import { TourStatus, TourOutcome } from '../lib/types';
 
 const statusStyles: Record<TourStatus, string> = {
   scheduled: 'bg-primary/15 text-primary',

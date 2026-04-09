@@ -1,5 +1,5 @@
-import { useAppState } from '@/lib/app-context';
-import { MetricCard } from '@/components/MetricCard';
+import { useAppState } from '../lib/app-context';
+import { MetricCard } from '../components/MetricCard';
 import { CalendarCheck, Phone, TrendingUp, FileText } from 'lucide-react';
 
 export default function FlowOpsDashboard() {

@@ -1,4 +1,4 @@
-import { useAppState } from '@/lib/app-context';
+import { useAppState } from '../lib/app-context';
 import { Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
