@@ -136,6 +136,7 @@ const Leads = () => {
   const [scheduleAssignedSearch, setScheduleAssignedSearch] = useState('');
   const [showAssignedOptions, setShowAssignedOptions] = useState(false);
   const [scheduleBudget, setScheduleBudget] = useState('12000');
+  const [isExporting, setIsExporting] = useState(false);
 
   const hasValidCustomRange = (() => {
     if (!fromDate || !toDate) return false;
@@ -313,17 +314,94 @@ const Leads = () => {
     }
   };
 
-  const handleExport = () => {
-    const csv = [
-      ['Name', 'Phone', 'Email', 'Source', 'Status', 'Member', 'Location', 'Budget', 'Score'].join(','),
-      ...filtered.map(l => [l.name, l.phone, l.email || '', l.source, l.status, l.members?.name || '', l.preferredLocation || '', l.budget || '', l.leadScore ?? 0].join(','))
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'leads-export.csv';
-    a.click();
+  const buildLeadExportParams = (skip: number, limit: number) => {
+    const params = new URLSearchParams();
+    params.set('skip', String(skip));
+    params.set('limit', String(limit));
+
+    if (serverFilters.q) params.set('q', serverFilters.q);
+    if (serverFilters.status && serverFilters.status !== 'all') params.set('status', serverFilters.status);
+    if (serverFilters.source && serverFilters.source !== 'all') params.set('source', serverFilters.source);
+    if (serverFilters.zone && serverFilters.zone !== 'all') params.set('zone', serverFilters.zone);
+    if (serverFilters.duplicate && serverFilters.duplicate !== 'all') params.set('duplicate', serverFilters.duplicate);
+    if (serverFilters.sort) params.set('sort', serverFilters.sort);
+    if (serverFilters.period && serverFilters.period !== 'all') params.set('period', serverFilters.period);
+    if (serverFilters.from) params.set('from', serverFilters.from);
+    if (serverFilters.to) params.set('to', serverFilters.to);
+
+    return params;
+  };
+
+  const escapeCsvCell = (value: unknown) => {
+    const raw = value == null ? '' : String(value);
+    const escaped = raw.replace(/"/g, '""');
+    return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
+  };
+
+  const fetchAllLeadsForExport = async () => {
+    const pageSize = 100;
+    let skip = 0;
+    let total = Number.POSITIVE_INFINITY;
+    const allLeads: LeadWithRelations[] = [];
+
+    while (skip < total) {
+      const params = buildLeadExportParams(skip, pageSize);
+      const res = await fetch(`/api/leads?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to fetch all leads for export');
+
+      const data = await res.json() as { leads?: LeadWithRelations[]; total?: number };
+      const batch = data.leads || [];
+      allLeads.push(...batch);
+
+      if (typeof data.total === 'number') total = data.total;
+      if (batch.length === 0 || batch.length < pageSize) break;
+      skip += batch.length;
+    }
+
+    return allLeads;
+  };
+
+  const handleExport = async () => {
+    if (isExporting) return;
+
+    try {
+      setIsExporting(true);
+
+      const allLeads = await fetchAllLeadsForExport();
+      if (allLeads.length === 0) {
+        toast.info('No leads found to export');
+        return;
+      }
+
+      const csv = [
+        ['Name', 'Phone', 'Email', 'Source', 'Status', 'Member', 'Location', 'Budget', 'Score'].join(','),
+        ...allLeads.map((l) => [
+          l.name,
+          l.phone,
+          l.email || '',
+          l.source,
+          l.status,
+          l.members?.name || '',
+          l.preferredLocation || '',
+          l.budget || '',
+          l.leadScore ?? 0,
+        ].map(escapeCsvCell).join(',')),
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `leads-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${allLeads.length} leads`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to export leads');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const openScheduleFromLead = (lead: LeadWithRelations, zoneName: string) => {
@@ -583,8 +661,8 @@ const Leads = () => {
             )}
           </div>
 
-          <Button variant="outline" size="sm" className="mr-1.5 md:mr-0 h-7 md:h-7 gap-1 text-[11px] md:text-[10px] rounded-lg md:rounded-xl px-2 ml-auto shrink-0" onClick={handleExport}>
-            <Download size={13} className="md:w-3 md:h-3" /> <span className="hidden sm:inline">Export</span>
+          <Button variant="outline" size="sm" className="mr-1.5 md:mr-0 h-7 md:h-7 gap-1 text-[11px] md:text-[10px] rounded-lg md:rounded-xl px-2 ml-auto shrink-0" onClick={handleExport} disabled={isExporting}>
+            {isExporting ? <Loader2 size={13} className="md:w-3 md:h-3 animate-spin" /> : <Download size={13} className="md:w-3 md:h-3" />} <span className="hidden sm:inline">Export</span>
           </Button>
         </div>
 
