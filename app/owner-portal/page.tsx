@@ -229,7 +229,7 @@ export default function OwnerPortal() {
                 ))}
               </div>
             ) : (
-              <EmptyState msg="No active tours scheduled. Tours appear here dynamicly as our sales team schedules them." />
+              <EmptyState msg="No active tours scheduled. Tours appear here dynamically as our team schedules them." />
             )}
           </div>
         )}

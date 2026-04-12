@@ -62,7 +62,7 @@ const SEED_DATA: Record<string, RoomState> = {
 
 const SEED_ACTIONS: SystemAction[] = [
   { id: 'a1', pgId: 1, roomId: 'pg1_rm1', roomNum: '101', type: 'RETAIL_APPROVED', note: 'Retail approved at ₹11,500', by: 'Karan S', at: '2026-03-24 10:12 AM' },
-  { id: 'a2', pgId: 1, roomId: 'pg1_rm2', roomNum: '102', type: 'VISIT_SCHEDULED', note: 'Physical visit scheduled for Rohan Gupta', by: 'Sales Team', at: '2026-03-23 04:45 PM' },
+  { id: 'a2', pgId: 1, roomId: 'pg1_rm2', roomNum: '102', type: 'VISIT_SCHEDULED', note: 'Physical visit scheduled for Rohan Gupta', by: 'Demand Team', at: '2026-03-23 04:45 PM' },
   { id: 'a3', pgId: 1, roomId: 'pg1_rm3', roomNum: '201', type: 'OWNER_UPDATE', note: 'Owner updated expected rent to ₹15,000', by: 'Owner', at: '2026-03-25 09:30 AM' },
 ];
 
@@ -158,7 +158,7 @@ export function useRoomStore() {
     });
   }, [mutate]);
 
-  // SALES: approve a room for retail
+  // DEMAND: approve a room for retail
   const approveRoom = useCallback((room: Room, retailPrice: number, approvedBy: string) => {
     mutate(room.id, prev => ({
       ...prev,
@@ -175,7 +175,7 @@ export function useRoomStore() {
     });
   }, [mutate]);
 
-  // SALES: schedule a visit → SOFT_LOCKED
+  // DEMAND: schedule a visit → SOFT_LOCKED
   const scheduleVisit = useCallback((room: Room, visit: VisitData) => {
     mutate(room.id, prev => ({
       ...prev,
@@ -191,11 +191,11 @@ export function useRoomStore() {
       roomNum: room.num,
       type: 'VISIT_SCHEDULED',
       note: `${visit.visitType} visit scheduled for ${visit.customerName} on ${visit.date}`,
-      by: 'Sales Team'
+      by: 'Demand Team'
     });
   }, [mutate]);
 
-  // SALES: mark pre-booked
+  // DEMAND: mark pre-booked
   const preBookRoom = useCallback((room: Room) => {
     mutate(room.id, prev => ({ ...prev, status: 'HARD_LOCKED' }), room);
   }, [mutate]);

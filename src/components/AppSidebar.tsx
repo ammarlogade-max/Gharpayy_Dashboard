@@ -10,7 +10,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
 import { formatUserLabel } from '@/lib/userDisplay';
 
-const salesItems = [
+const demandItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/leads', icon: Users, label: 'Leads' },
   { to: '/pipeline', icon: Kanban, label: 'Pipeline' },
@@ -45,7 +45,7 @@ const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => voi
   }, []);
   useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
 
-  const renderGroup = (label: string, items: typeof salesItems) => (
+  const renderGroup = (label: string, items: typeof demandItems) => (
     <>
       <p className="px-2.5 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: 'hsl(var(--sidebar-fg))' }}>{label}</p>
       {items.map((item) => {
@@ -91,7 +91,7 @@ const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => voi
 
         {/* Nav */}
         <nav className="flex-1 px-2 overflow-y-auto space-y-0.5">
-          {renderGroup('Demand', salesItems)}
+          {renderGroup('Demand', demandItems)}
           {renderGroup('Supply', supplyItems)}
           {renderGroup('Portals', portalItems)}
         </nav>

@@ -22,7 +22,7 @@ export interface RoomState {
   expectedRent: number;
   remarks: string;
   updatedAt?: string;
-  // set by sales
+  // set by demand team
   retailPrice?: number;
   approvedBy?: string;
   visitCustomer?: string;

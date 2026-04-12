@@ -189,7 +189,7 @@ export default function OwnerPortal() {
         {/* Stats Grid */}
         <div style={{ padding: '0 40px', display: 'flex', gap: 20 }}>
           <StatCard label="Live Units" value={stats.approved} sub="Active in Gharpayy OS" color={T.green} />
-          <StatCard label="Active Leads" value={stats.softLocked} sub="Sales team efforts" color={T.violet} />
+          <StatCard label="Active Leads" value={stats.softLocked} sub="Team efforts" color={T.violet} />
         </div>
 
         {/* Tabs Control */}
@@ -250,7 +250,7 @@ export default function OwnerPortal() {
                 <div style={{ padding: '100px 0', textAlign: 'center' }}>
                   <Activity size={48} style={{ color: T.t3, marginBottom: 20 }} />
                   <div style={{ fontSize: 18, color: T.t2, fontWeight: 700 }}>Action Ledger — System Syncing...</div>
-                  <div style={{ color: T.t3, marginTop: 8, fontFamily: T.mono }}>Verified sales efforts for {selectedPG.name} will appear here.</div>
+                  <div style={{ color: T.t3, marginTop: 8, fontFamily: T.mono }}>Verified team efforts for {selectedPG.name} will appear here.</div>
                 </div>
               )}
             </div>

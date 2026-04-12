@@ -229,7 +229,7 @@ const ZoneManagement = () => {
                     <SelectTrigger className="text-xs"><SelectValue placeholder="Select Zone" /></SelectTrigger>
                     <SelectContent>{zones?.map((z: any) => <SelectItem key={z.id} value={z.id}>{z.name}</SelectItem>)}</SelectContent>
                   </Select>
-                  <Input placeholder="Team name (e.g. Marathahalli Sales)" value={newQueue.team_name} onChange={e => setNewQueue({ ...newQueue, team_name: e.target.value })} className="text-xs" />
+                  <Input placeholder="Team name (e.g. Marathahalli Team)" value={newQueue.team_name} onChange={e => setNewQueue({ ...newQueue, team_name: e.target.value })} className="text-xs" />
                   <Select value={newQueue.owner_agent_id} onValueChange={v => setNewQueue({ ...newQueue, owner_agent_id: v })}>
                     <SelectTrigger className="text-xs"><SelectValue placeholder="Queue Owner (optional)" /></SelectTrigger>
                     <SelectContent>{members?.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}</SelectContent>
