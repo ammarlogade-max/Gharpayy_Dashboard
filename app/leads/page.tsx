@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import AppLayout from '@/components/AppLayout';
 import EditLeadDialog from '@/components/EditLeadDialog';
-import { useLeadsPaginated, useOfficeZones, usePipelineStages, useCreateVisit, useProperties, type LeadsQueryFilters } from '@/hooks/useCrmData';
+import { useLeadsPaginated, useOfficeZones, usePipelineStages, useCreateVisit, useProperties, useVisits, type LeadsQueryFilters } from '@/hooks/useCrmData';
 import { useBulkUpdateLeads } from '@/hooks/useLeadDetails';
 import { useUpdateLead, useAgents, type LeadWithRelations } from '@/hooks/useCrmData';
 import { PIPELINE_STAGES, SOURCE_LABELS } from '@/types/crm';
@@ -103,6 +103,12 @@ function objectIdLike() {
   return seed.padEnd(24, '0').slice(0, 24);
 }
 
+function extractMeta(notes: string, key: string) {
+  const re = new RegExp(`${key}:([^;]+)`, 'i');
+  const match = String(notes || '').match(re);
+  return match?.[1]?.trim() || '';
+}
+
 const Leads = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSource, setFilterSource] = useState<string>('all');
@@ -138,6 +144,15 @@ const Leads = () => {
   const [scheduleAssignedSearch, setScheduleAssignedSearch] = useState('');
   const [showAssignedOptions, setShowAssignedOptions] = useState(false);
   const [scheduleBudget, setScheduleBudget] = useState('12000');
+  const [scheduleRemarks, setScheduleRemarks] = useState('');
+  const [existingTourInfo, setExistingTourInfo] = useState<null | {
+    leadName: string;
+    propertyName: string;
+    assignedTo: string;
+    tourTime: string;
+    tourMode: string;
+    remarks: string;
+  }>(null);
   const [isExporting, setIsExporting] = useState(false);
   const queryClient = useQueryClient();
 
@@ -258,6 +273,7 @@ const Leads = () => {
   const { data: members } = useAgents();
   const { data: officeZones } = useOfficeZones();
   const { data: properties } = useProperties();
+  const { data: visits } = useVisits();
   const { data: pipelineStagesData } = usePipelineStages();
   const pipelineStages = (pipelineStagesData && pipelineStagesData.length > 0)
     ? pipelineStagesData
@@ -438,6 +454,65 @@ const Leads = () => {
   };
 
   const openScheduleFromLead = (lead: LeadWithRelations, zoneName: string) => {
+    const now = Date.now();
+    const matchingVisits = ((visits || []) as any[])
+      .filter((visit: any) => {
+        const visitLeadId = String(
+          visit?.leadId?._id ||
+          visit?.leadId ||
+          visit?.leads?._id ||
+          visit?.leads?.id ||
+          ''
+        );
+        if (visitLeadId !== lead.id) return false;
+
+        const outcome = String(visit?.outcome || '').toLowerCase();
+        if (['completed', 'cancelled', 'no_show'].includes(outcome)) return false;
+
+        const scheduledAtMs = new Date(String(visit?.scheduledAt || visit?.scheduled_at || 0)).getTime();
+        return !Number.isNaN(scheduledAtMs) && scheduledAtMs >= now;
+      })
+      .sort((a: any, b: any) => {
+        const at = new Date(String(a?.scheduledAt || a?.scheduled_at || 0)).getTime();
+        const bt = new Date(String(b?.scheduledAt || b?.scheduled_at || 0)).getTime();
+        return at - bt;
+      });
+
+    const existingVisit = matchingVisits[0];
+    if (existingVisit) {
+      const notes = String(existingVisit?.notes || '');
+      const encodedRemarks = extractMeta(notes, 'tour_remarks');
+      let decodedRemarks = '';
+      if (encodedRemarks) {
+        try {
+          decodedRemarks = decodeURIComponent(encodedRemarks);
+        } catch {
+          decodedRemarks = encodedRemarks;
+        }
+      }
+
+      const scheduledAt = new Date(String(existingVisit?.scheduledAt || existingVisit?.scheduled_at || ''));
+      setExistingTourInfo({
+        leadName: lead.name || 'Lead',
+        propertyName: String(existingVisit?.properties?.name || extractMeta(notes, 'typed_property') || schedulePropertyName || 'Property'),
+        assignedTo: String(existingVisit?.members?.fullName || existingVisit?.members?.name || extractMeta(notes, 'assigned_to') || 'Assigned member'),
+        tourTime: Number.isNaN(scheduledAt.getTime())
+          ? 'Scheduled'
+          : scheduledAt.toLocaleString('en-GB', {
+              day: '2-digit',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+            }),
+        tourMode: extractMeta(notes, 'tour_mode') || 'physical',
+        remarks: String(existingVisit?.scheduleRemarks || decodedRemarks || '').trim(),
+      });
+      setScheduleOpen(true);
+      return;
+    }
+
+    setExistingTourInfo(null);
     setScheduleLeadId(lead.id);
     setScheduleLeadName(lead.name || '');
     setSchedulePhone(lead.phone || '');
@@ -449,6 +524,7 @@ const Leads = () => {
     setScheduleAssignedSearch('');
     setShowAssignedOptions(false);
     setScheduleBudget('12000');
+    setScheduleRemarks('');
 
     const matchedZone = (officeZones || []).find((z: any) => String(z.name || '').toLowerCase() === String(zoneName || '').toLowerCase());
     if (matchedZone) {
@@ -493,12 +569,14 @@ const Leads = () => {
         property_id: fallbackPropertyId,
         assigned_staff_id: String(assignedMember.id || assignedMember._id || ''),
         scheduled_at: scheduledAt.toISOString(),
-        notes: `tour_mode:${scheduleTourMode}; zone:${zone.name}; budget:${Number(scheduleBudget) || 0}; scheduled_by:${user?.fullName || user?.username || 'system'}; scheduled_by_id:${String(user?.id || '')}; assigned_to:${assignedMember.name || assignedMember.fullName || ''}; assigned_to_id:${String(assignedMember.id || assignedMember._id || '')}; typed_property:${schedulePropertyName.trim()}`,
+        scheduleRemarks: scheduleRemarks.trim() || null,
+        notes: `tour_mode:${scheduleTourMode}; zone:${zone.name}; budget:${Number(scheduleBudget) || 0}; scheduled_by:${user?.fullName || user?.username || 'system'}; scheduled_by_id:${String(user?.id || '')}; assigned_to:${assignedMember.name || assignedMember.fullName || ''}; assigned_to_id:${String(assignedMember.id || assignedMember._id || '')}; typed_property:${schedulePropertyName.trim()}; tour_remarks:${encodeURIComponent(scheduleRemarks.trim())}`,
         phone: schedulePhone,
       });
 
       toast.success('Tour scheduled successfully');
       setScheduleOpen(false);
+      setExistingTourInfo(null);
     } catch (err: any) {
       toast.error(err?.message || 'Failed to schedule tour');
     }
@@ -1546,13 +1624,35 @@ const Leads = () => {
       </button>
 
       {/* Schedule Tour Dialog */}
-      <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
+      <Dialog
+        open={scheduleOpen}
+        onOpenChange={(nextOpen) => {
+          setScheduleOpen(nextOpen);
+          if (!nextOpen) setExistingTourInfo(null);
+        }}
+      >
         <DialogContent className="sm:max-w-[560px]">
           <DialogHeader>
             <DialogTitle>Schedule Tour</DialogTitle>
-            <DialogDescription>Create a tour assignment without leaving Leads.</DialogDescription>
+            <DialogDescription>
+              {existingTourInfo
+                ? 'A tour is already scheduled for this lead.'
+                : 'Create a tour assignment without leaving Leads.'}
+            </DialogDescription>
           </DialogHeader>
 
+          {existingTourInfo ? (
+            <div className="space-y-2 rounded-lg border border-border bg-secondary/25 p-3">
+              <p className="text-xs"><span className="font-semibold">Lead:</span> {existingTourInfo.leadName}</p>
+              <p className="text-xs"><span className="font-semibold">Property:</span> {existingTourInfo.propertyName}</p>
+              <p className="text-xs"><span className="font-semibold">Assigned To:</span> {existingTourInfo.assignedTo}</p>
+              <p className="text-xs"><span className="font-semibold">Tour Time:</span> {existingTourInfo.tourTime}</p>
+              <p className="text-xs"><span className="font-semibold">Tour Mode:</span> {existingTourInfo.tourMode}</p>
+              {existingTourInfo.remarks ? (
+                <p className="text-xs"><span className="font-semibold">Remarks:</span> {existingTourInfo.remarks}</p>
+              ) : null}
+            </div>
+          ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label className="text-xs">Lead</Label>
@@ -1635,13 +1735,25 @@ const Leads = () => {
               <Label className="text-xs">Budget</Label>
               <Input type="number" value={scheduleBudget} onChange={(e) => setScheduleBudget(e.target.value)} className="h-8 text-xs" />
             </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Remarks</Label>
+              <Input
+                value={scheduleRemarks}
+                onChange={(e) => setScheduleRemarks(e.target.value)}
+                placeholder="Any context for assigned person"
+                className="h-8 text-xs"
+              />
+            </div>
           </div>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setScheduleOpen(false)}>Cancel</Button>
-            <Button onClick={handleScheduleTourFromLead} disabled={createVisit.isPending}>
-              {createVisit.isPending ? 'Scheduling...' : 'Schedule'}
-            </Button>
+            {!existingTourInfo ? (
+              <Button onClick={handleScheduleTourFromLead} disabled={createVisit.isPending}>
+                {createVisit.isPending ? 'Scheduling...' : 'Schedule'}
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -38,6 +38,20 @@ function extractMeta(notes: string, key: string) {
   return match?.[1]?.trim() || '';
 }
 
+function extractScheduleRemarks(visit: any) {
+  const fromField = String(visit?.scheduleRemarks || '').trim();
+  if (fromField) return fromField;
+
+  const notes = String(visit?.notes || '');
+  const parsed = extractMeta(notes, 'tour_remarks');
+  if (!parsed) return '';
+  try {
+    return decodeURIComponent(parsed);
+  } catch {
+    return parsed;
+  }
+}
+
 type TcmTourItem = {
   id: string;
   leadName: string;
@@ -47,6 +61,7 @@ type TcmTourItem = {
   showUp: Tour['showUp'];
   outcome: Tour['outcome'];
   remarks?: string;
+  scheduleRemarks?: string;
   createdAt: string;
   isLocal: boolean;
 };
@@ -142,6 +157,7 @@ export function TCMPanel() {
         showUp: outcome === 'completed' ? true : outcome === 'no_show' ? false : null,
         outcome: null,
         remarks: String(visit?.notes || ''),
+        scheduleRemarks: extractScheduleRemarks(visit),
         createdAt,
         isLocal: false,
       };
@@ -163,6 +179,7 @@ export function TCMPanel() {
       showUp: tour.showUp,
       outcome: tour.outcome,
       remarks: tour.remarks,
+      scheduleRemarks: tour.remarks,
       createdAt: String(tour.createdAt || new Date().toISOString()),
       isLocal: true,
     } as TcmTourItem));
@@ -249,6 +266,9 @@ export function TCMPanel() {
                 <div className="min-w-0">
                   <span className="text-sm font-medium text-foreground">{tour.leadName}</span>
                   <span className="ml-2 text-xs text-muted-foreground">{tour.propertyName} - {tour.tourTime}</span>
+                  {tour.scheduleRemarks ? (
+                    <p className="mt-1 text-xs font-medium text-foreground/90">Remarks: {tour.scheduleRemarks}</p>
+                  ) : null}
                 </div>
                 <div className="flex gap-2 shrink-0">
                   <Button size="sm" className="h-8 text-xs" onClick={() => handleUpdateTour(tour.id, { status: 'confirmed' })}>Confirm</Button>
@@ -287,6 +307,9 @@ export function TCMPanel() {
                 <span className="text-xs text-muted-foreground">{tour.tourTime}</span>
               </div>
               <p className="mb-2 text-xs text-muted-foreground">{tour.propertyName}</p>
+              {tour.scheduleRemarks ? (
+                <p className="mb-2 text-xs font-medium text-foreground/90">Remarks: {tour.scheduleRemarks}</p>
+              ) : null}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex gap-2">
                   <ToursStatusBadge status={tour.status} />
@@ -319,6 +342,7 @@ export function TCMPanel() {
                 <th className="py-2 text-left font-medium">Time</th>
                 <th className="py-2 text-left font-medium">Lead</th>
                 <th className="py-2 text-left font-medium">Property</th>
+                <th className="py-2 text-left font-medium">Remarks</th>
                 <th className="py-2 text-left font-medium">Status</th>
                 <th className="py-2 text-left font-medium">Show-Up</th>
                 <th className="py-2 text-left font-medium">Outcome</th>
@@ -331,6 +355,9 @@ export function TCMPanel() {
                   <td className="py-2 text-muted-foreground">{tour.tourTime}</td>
                   <td className="py-2 font-medium text-foreground">{tour.leadName}</td>
                   <td className="py-2 text-muted-foreground">{tour.propertyName}</td>
+                  <td className="py-2 text-muted-foreground max-w-[240px] truncate" title={tour.scheduleRemarks || ''}>
+                    {tour.scheduleRemarks || '-'}
+                  </td>
                   <td className="py-2"><ToursStatusBadge status={tour.status} /></td>
                   <td className="py-2">{tour.showUp === true ? 'YES' : tour.showUp === false ? 'NO' : '-'}</td>
                   <td className="py-2"><ToursOutcomeBadge outcome={tour.outcome} /></td>

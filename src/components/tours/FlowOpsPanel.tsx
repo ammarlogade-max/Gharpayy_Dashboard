@@ -54,6 +54,7 @@ export function FlowOpsPanel() {
   const [assignedSearch, setAssignedSearch] = useState('');
   const [showAssignedOptions, setShowAssignedOptions] = useState(false);
   const [budget, setBudget] = useState('12000');
+  const [remarks, setRemarks] = useState('');
 
   const myVisits = useMemo(() => {
     const list = (visits || []) as any[];
@@ -266,6 +267,7 @@ export function FlowOpsPanel() {
     setAssignedTo(memberOptions[0]?.id || '');
     setAssignedSearch(memberOptions[0]?.name || '');
     setBudget('12000');
+    setRemarks('');
   };
 
   const handleScheduleTour = async () => {
@@ -301,6 +303,7 @@ export function FlowOpsPanel() {
         property_id: fallbackPropertyId,
         assigned_staff_id: assignedMember.id,
         scheduled_at: scheduledAt.toISOString(),
+        scheduleRemarks: remarks.trim() || null,
         notes: `tour_mode:${tourMode}; zone:${zone.name}; budget:${Number(budget) || 0}; scheduled_by:${user?.fullName || user?.username || 'system'}; scheduled_by_id:${String(user?.id || '')}; assigned_to:${assignedMember.name}; assigned_to_id:${assignedMember.id}; typed_property:${propertyName.trim()}`,
         phone,
       });
@@ -465,6 +468,15 @@ export function FlowOpsPanel() {
             <div className="space-y-1.5">
               <Label className="text-xs">Budget</Label>
               <Input type="number" value={budget} onChange={(e) => setBudget(e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Remarks</Label>
+              <Input
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                placeholder="Any context for assigned person (access info, priorities, constraints...)"
+                className="h-8 text-xs"
+              />
             </div>
           </div>
 
