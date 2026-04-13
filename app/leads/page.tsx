@@ -410,6 +410,12 @@ const Leads = () => {
     return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
   };
 
+  const formatIsoDateTime = (value?: string | Date | null) => {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+  };
+
   const fetchAllLeadsForExport = async () => {
     const pageSize = 100;
     let skip = 0;
@@ -445,18 +451,66 @@ const Leads = () => {
         return;
       }
 
+      const pipelineStageLabelByKey = new Map(
+        pipelineStages.map((stage) => [String(stage.key || ''), String(stage.label || stage.key || '')])
+      );
+
       const csv = [
-        ['Name', 'Phone', 'Email', 'Source', 'Status', 'Member', 'Location', 'Budget', 'Score'].join(','),
+        [
+          'Lead ID',
+          'Name',
+          'Phone',
+          'Email',
+          'Pipeline Stage',
+          'Pipeline Stage Key',
+          'Source',
+          'Zone',
+          'Assigned To',
+          'Assignment Status',
+          'Created By',
+          'Created On',
+          'Updated On',
+          'Property',
+          'Preferred Location',
+          'Budget',
+          'Move In Date',
+          'Profession',
+          'Room Type',
+          'Need Preference',
+          'Special Requests',
+          'Notes',
+          'Lead Score',
+          'First Response Time (min)',
+          'Is Duplicate',
+          'Duplicate Count',
+        ].join(','),
         ...allLeads.map((l) => [
+          l.id,
           l.name,
           l.phone,
           l.email || '',
-          l.source,
+          pipelineStageLabelByKey.get(l.status) || l.status,
           l.status,
+          l.source,
+          (l as any).zone || '',
           l.members?.name || '',
+          l.assignmentStatus || '',
+          l.creator?.name || '',
+          formatIsoDateTime(l.createdAt),
+          formatIsoDateTime((l as any).updatedAt),
+          l.properties?.name || '',
           l.preferredLocation || '',
           l.budget || '',
+          l.moveInDate || '',
+          l.profession || '',
+          l.roomType || '',
+          l.needPreference || '',
+          l.specialRequests || '',
+          l.notes || '',
           l.leadScore ?? 0,
+          l.firstResponseTimeMin ?? '',
+          l.isDuplicate ? 'Yes' : 'No',
+          l.duplicateCount ?? 0,
         ].map(escapeCsvCell).join(',')),
       ].join('\n');
 
