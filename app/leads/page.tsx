@@ -286,13 +286,14 @@ const Leads = () => {
   const canAddLead = ['super_admin', 'manager', 'admin', 'member'].includes(user?.role || '');
   const isScopedZoneRole = ['admin', 'member'].includes(user?.role || '');
   const isMemberRole = user?.role === 'member';
+  const isAdminRole = user?.role === 'admin';
   const isAssignedByMeReadOnly = isMemberRole && filterZone === 'assigned_by_me';
 
   useEffect(() => {
-    if (isScopedZoneRole && (filterZone === 'all' || !filterZone)) {
-      setFilterZone('my_zones');
+    if (!filterZone) {
+      setFilterZone('all');
     }
-  }, [isScopedZoneRole, filterZone]);
+  }, [user?.role, filterZone]);
 
   useEffect(() => {
     if (!isAssignedByMeReadOnly) return;
@@ -720,6 +721,7 @@ const Leads = () => {
               <SelectContent side="bottom" align="start">
                 {isScopedZoneRole ? (
                   <>
+                    {(isMemberRole || isAdminRole) && <SelectItem value="all">All Leads</SelectItem>}
                     <SelectItem value="my_zones">My Zones</SelectItem>
                     <SelectItem value="other_zones">Other Zones</SelectItem>
                     {isMemberRole && <SelectItem value="assigned_by_me">Assigned by Me</SelectItem>}
@@ -850,6 +852,7 @@ const Leads = () => {
               <SelectContent side="bottom" align="start">
                 {isScopedZoneRole ? (
                   <>
+                    {(isMemberRole || isAdminRole) && <SelectItem value="all">All Leads</SelectItem>}
                     <SelectItem value="my_zones">My Zones</SelectItem>
                     <SelectItem value="other_zones">Other Zones</SelectItem>
                     {isMemberRole && <SelectItem value="assigned_by_me">Assigned by Me</SelectItem>}

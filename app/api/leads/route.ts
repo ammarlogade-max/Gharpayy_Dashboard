@@ -108,6 +108,7 @@ export async function GET(req: Request) {
       authUser.role === 'member' && (zone === 'assigned_by_me' || zone === 'assigned_to_me')
         ? zone
         : null;
+    const memberAllLeadsMode = authUser.role === 'member' && zone === 'all';
 
     const query: any = {};
     const andFilters: any[] = [];
@@ -129,7 +130,8 @@ export async function GET(req: Request) {
             { assignmentStatus: { $ne: 'pending' } },
           ],
         });
-      } else {
+      } else if (!memberAllLeadsMode) {
+        // Default member scope remains "my assigned leads" unless All Leads is selected.
         andFilters.push({ assignedMemberId: authUser.id });
         andFilters.push({
           $or: [
