@@ -3,6 +3,7 @@ import AppSidebar from './AppSidebar';
 import CommandPalette from './CommandPalette';
 import NotificationBell from './NotificationBell';
 import QuickAddLead from './QuickAddLead';
+import LeadsProgressPanelButton from './LeadsProgressPanelButton';
 import { Menu, Search } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
@@ -43,15 +44,8 @@ const AppLayout = ({ children, title, subtitle, actions, showQuickAddLead = true
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {userLabel && (
-              <div className="hidden sm:flex flex-col px-3 py-1.5 rounded-full border border-border/60 bg-secondary/70 max-w-[220px]">
-                <p className="text-[11px] font-medium text-foreground/80 leading-tight truncate">{userLabel}</p>
-                {userZonesLabel && (
-                  <p className="text-[10px] text-muted-foreground leading-tight truncate">{userZonesLabel}</p>
-                )}
-              </div>
-            )}
             {actions}
+            <LeadsProgressPanelButton />
             <NotificationBell />
             <button
               onClick={() => setCmdOpen(true)}
@@ -64,6 +58,14 @@ const AppLayout = ({ children, title, subtitle, actions, showQuickAddLead = true
             <button onClick={() => setCmdOpen(true)} className="md:hidden p-1.5 rounded-lg bg-secondary hover:bg-muted transition-colors">
               <Search size={15} className="text-muted-foreground" />
             </button>
+            {userLabel && (
+              <div className="hidden sm:flex flex-col px-3 py-1.5 rounded-full border border-border/60 bg-secondary/70 max-w-[220px]">
+                <p className="text-[11px] font-medium text-foreground/80 leading-tight truncate">{userLabel}</p>
+                {userZonesLabel && (
+                  <p className="text-[10px] text-muted-foreground leading-tight truncate">{userZonesLabel}</p>
+                )}
+              </div>
+            )}
           </div>
         </header>
 

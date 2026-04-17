@@ -1257,9 +1257,6 @@ const Leads = () => {
       title="All Leads"
       subtitle={subtitleCount}
       showQuickAddLead={false}
-      actions={(
-        <LeadsProgressPanelButton />
-      )}
     >
       {/* Filters Area */}
       <div className="flex flex-col gap-3 mb-5">

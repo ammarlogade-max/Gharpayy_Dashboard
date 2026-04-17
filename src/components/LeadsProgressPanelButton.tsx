@@ -117,11 +117,36 @@ export default function LeadsProgressPanelButton({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
+      <style>{`
+        @keyframes progressShimmerSweep {
+          0% { transform: translateX(-160%) skewX(-18deg); }
+          100% { transform: translateX(260%) skewX(-18deg); }
+        }
+      `}</style>
       {showTrigger && (
         <DialogTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 gap-1.5 text-[11px] rounded-xl px-2 border-primary/25 bg-primary/5 text-foreground hover:bg-primary/10 hover:text-foreground">
-            <Gauge size={13} />
-            <span className="hidden sm:inline">Progress</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="relative h-7 rounded-xl px-2 text-[11px] border border-orange-500/45 bg-background hover:bg-background overflow-hidden"
+          >
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-0 rounded-xl bg-orange-500/[0.05]"
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 -left-[45%] w-[38%]"
+              style={{
+                background: 'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(251,146,60,0.88) 50%, rgba(255,255,255,0) 100%)',
+                animation: 'progressShimmerSweep 1.9s linear infinite',
+                willChange: 'transform',
+              }}
+            />
+            <span className="relative z-10 inline-flex items-center gap-1.5 text-foreground">
+              <Gauge size={13} />
+              <span className="hidden sm:inline">Progress</span>
+            </span>
           </Button>
         </DialogTrigger>
       )}

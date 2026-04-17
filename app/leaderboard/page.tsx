@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
 
 export default function LeaderboardPage() {
   return (
-    <AppLayout title="Leaderboard" subtitle="Agent performance rankings">
+    <AppLayout title="Leaderboard" subtitle="performance rankings">
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
