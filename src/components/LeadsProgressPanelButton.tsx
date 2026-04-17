@@ -86,8 +86,7 @@ export default function LeadsProgressPanelButton({
   const { user } = useAuth();
   const allowedRoles = ['super_admin', 'manager', 'admin', 'member'];
   const role = String(user?.role || '');
-
-  if (!allowedRoles.includes(role)) return null;
+  const hasAccess = allowedRoles.includes(role);
 
   const [open, setOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState(getTodayIstDate());
@@ -113,6 +112,8 @@ export default function LeadsProgressPanelButton({
     () => members.filter((member) => member.allDone).length,
     [members]
   );
+
+  if (!hasAccess) return null;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
