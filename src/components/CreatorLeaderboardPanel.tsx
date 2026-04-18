@@ -2,20 +2,23 @@
 
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Medal, Crown, Sparkles } from 'lucide-react';
+import { Trophy, Medal, Crown, Sparkles, CalendarDays } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useCreatorLeaderboard, type CreatorLeaderboardEntry, type LeaderboardPeriod, useOfficeZones } from '@/hooks/useCrmData';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useCreatorLeaderboard, useOfficeZones, type CreatorLeaderboardEntry } from '@/hooks/useCrmData';
 import { useAuth } from '@/contexts/AuthContext';
+
+type LeaderboardPeriod = 'this_month' | 'all_time' | 'today' | 'last_30_days';
 
 const PERIOD_OPTIONS: { key: LeaderboardPeriod; label: string }[] = [
   { key: 'this_month', label: 'This Month' },
   { key: 'last_30_days', label: 'Last 30 Days' },
   { key: 'today', label: 'Today' },
   { key: 'all_time', label: 'All Time' },
-  { key: 'custom', label: 'Custom Dates' },
 ];
 
 const roleLabel: Record<'manager' | 'admin' | 'member', string> = {
@@ -54,9 +57,9 @@ function PodiumCard({ item, index }: { item: CreatorLeaderboardEntry; index: num
       <p className="mt-1 text-sm font-semibold text-foreground">{item.name}</p>
       <p className="text-[11px] text-muted-foreground">{roleLabel[item.role]}</p>
       <div className={`mt-4 rounded-xl bg-background/70 px-3 py-2 ${heights[index] || 'h-20'}`}>
-        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Pipeline Score</p>
-        <p className="mt-1 text-2xl font-bold text-foreground">{item.score}</p>
-        <p className="text-[9px] uppercase tracking-wide text-muted-foreground">{item.leadsCreated} leads</p>
+        <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Tours</p>
+        <p className="mt-1 text-2xl font-bold text-foreground">{item.toursCount}</p>
+        <p className="text-[9px] uppercase tracking-wide text-muted-foreground">tour count</p>
         {item.zones.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {item.zones.map((z) => (
@@ -74,16 +77,47 @@ function PodiumCard({ item, index }: { item: CreatorLeaderboardEntry; index: num
 export function CreatorLeaderboardPanel({ compact = false }: { compact?: boolean }) {
   const { user } = useAuth();
   const [period, setPeriod] = useState<LeaderboardPeriod>('this_month');
-  const [zone, setZone] = useState<string>('all');
-  const [customFrom, setCustomFrom] = useState<string>('');
-  const [customTo, setCustomTo] = useState<string>('');
-  
-  const { data: zones } = useOfficeZones();
-  const { data, isLoading, isError } = useCreatorLeaderboard(period, zone, { from: customFrom, to: customTo });
+  const [selectedZone, setSelectedZone] = useState<string>('all');
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const { data: officeZones } = useOfficeZones();
+
+  const handlePeriodSelect = (nextPeriod: LeaderboardPeriod) => {
+    setFromDate('');
+    setToDate('');
+    setPeriod(nextPeriod);
+  };
+
+  const hasValidCustomRange = useMemo(() => {
+    if (!fromDate || !toDate) return false;
+    return new Date(fromDate) <= new Date(toDate);
+  }, [fromDate, toDate]);
+
+  const customRange = useMemo(
+    () => (hasValidCustomRange ? { from: fromDate, to: toDate } : undefined),
+    [hasValidCustomRange, fromDate, toDate]
+  );
+
+  const effectivePeriod: LeaderboardPeriod | 'custom' = hasValidCustomRange ? 'custom' : period;
+  const { data, isLoading, isError } = useCreatorLeaderboard(effectivePeriod, selectedZone, customRange);
+
+  const zoneNames = useMemo(() => {
+    const names: string[] = (officeZones || [])
+      .map((zone: any) => String(zone?.name || '').trim())
+      .filter((name) => Boolean(name));
+    return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b));
+  }, [officeZones]);
+
+  const dateRangeLabel = useMemo(() => {
+    if (fromDate && toDate) return `${fromDate} to ${toDate}`;
+    if (fromDate) return `From ${fromDate}`;
+    if (toDate) return `To ${toDate}`;
+    return 'Date Range';
+  }, [fromDate, toDate]);
 
   const rankings = data?.rankings || [];
   const topThree = rankings.slice(0, 3);
-  const topCount = rankings[0]?.score || 0;
+  const topCount = rankings[0]?.toursCount || 0;
 
   const currentUserEntry = useMemo(
     () => rankings.find((r) => r.userId === user?.id) || null,
@@ -93,44 +127,75 @@ export function CreatorLeaderboardPanel({ compact = false }: { compact?: boolean
   return (
     <div className={compact ? 'space-y-4' : 'space-y-5'}>
       <div className="rounded-2xl border bg-card p-4">
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">Lead Legends</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-primary">Tour Leaders</span>
             </div>
-            <h3 className="mt-2 text-lg font-semibold text-foreground">Lead Creator Leaderboard</h3>
-            <p className="text-xs text-muted-foreground">Ranking by pipeline stage progression and lead volume.</p>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            <Select value={zone} onValueChange={setZone}>
-              <SelectTrigger className="h-7 text-[11px] w-auto min-w-[90px] px-2 border-border bg-card text-muted-foreground">
-                <SelectValue />
+            <Select value={selectedZone} onValueChange={setSelectedZone}>
+              <SelectTrigger className="h-7 w-[130px] text-[11px]">
+                <SelectValue placeholder="All zones" />
               </SelectTrigger>
-              <SelectContent side="bottom" align="start">
-                <SelectItem value="all">All Zones</SelectItem>
-                {zones?.map((z: any) => <SelectItem key={z.id} value={z.name}>{z.name}</SelectItem>)}
+              <SelectContent>
+                <SelectItem value="all">All zones</SelectItem>
+                {zoneNames.map((zone) => (
+                  <SelectItem key={zone} value={zone}>{zone}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
+
             {PERIOD_OPTIONS.map((opt) => (
               <Button
                 key={opt.key}
                 variant={period === opt.key ? 'default' : 'outline'}
                 size="sm"
-                className="h-7 px-2.5 text-[11px]"
-                onClick={() => setPeriod(opt.key)}
+                className="h-7 px-3 text-[11px]"
+                onClick={() => handlePeriodSelect(opt.key)}
               >
                 {opt.label}
               </Button>
             ))}
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant={hasValidCustomRange ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 min-w-[175px] justify-start px-2.5 text-[11px] font-normal"
+                >
+                  <CalendarDays className="mr-1.5 h-3.5 w-3.5" />
+                  <span className="truncate">{dateRangeLabel}</span>
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[260px] p-3">
+                <div className="space-y-2">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">From</p>
+                    <Input
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                      className="h-8 text-[11px]"
+                      aria-label="From date"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">To</p>
+                    <Input
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                      className="h-8 text-[11px]"
+                      aria-label="To date"
+                    />
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
-          {period === 'custom' && (
-            <div className="flex items-center gap-2">
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="h-7 text-[11px] rounded-md bg-card border border-border px-2 text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
-              <span className="text-[10px] text-muted-foreground">to</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="h-7 text-[11px] rounded-md bg-card border border-border px-2 text-muted-foreground outline-none focus:ring-1 focus:ring-primary" />
-            </div>
-          )}
         </div>
       </div>
 
@@ -149,8 +214,8 @@ export function CreatorLeaderboardPanel({ compact = false }: { compact?: boolean
       {!isLoading && !isError && rankings.length === 0 && (
         <div className="rounded-2xl border bg-card p-8 text-center">
           <Trophy className="mx-auto h-7 w-7 text-muted-foreground" />
-          <p className="mt-2 text-sm font-semibold text-foreground">No lead creation activity in this period.</p>
-          <p className="text-xs text-muted-foreground">Start adding leads to climb the board.</p>
+          <p className="mt-2 text-sm font-semibold text-foreground">No tour activity in this period.</p>
+          <p className="text-xs text-muted-foreground">Schedule tours to climb the board.</p>
         </div>
       )}
 
@@ -171,16 +236,13 @@ export function CreatorLeaderboardPanel({ compact = false }: { compact?: boolean
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-foreground">Your Rank: #{currentUserEntry.rank}</p>
-                <div className="flex gap-2">
-                  <Badge variant="secondary" className="text-[10px]">Score: {currentUserEntry.score}</Badge>
-                  <Badge variant="outline" className="text-[10px]">{currentUserEntry.leadsCreated} leads</Badge>
-                </div>
+                <Badge variant="secondary" className="text-[10px]">{currentUserEntry.toursCount} tours</Badge>
               </div>
               <div className="mt-3">
-                <Progress value={topCount > 0 ? Math.min(100, (currentUserEntry.score / topCount) * 100) : 0} className="h-2" />
+                <Progress value={topCount > 0 ? Math.min(100, (currentUserEntry.toursCount / topCount) * 100) : 0} className="h-2" />
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   {topCount > 0
-                    ? `${Math.max(0, topCount - currentUserEntry.score)} points to match #1`
+                    ? `${Math.max(0, topCount - currentUserEntry.toursCount)} more to match #1`
                     : 'You are setting the pace'}
                 </p>
                 {currentUserEntry.zones.length > 0 && (
@@ -233,8 +295,8 @@ export function CreatorLeaderboardPanel({ compact = false }: { compact?: boolean
                       )}
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-foreground">{entry.score}</p>
-                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{entry.leadsCreated} leads</p>
+                      <p className="text-sm font-semibold text-foreground">{entry.toursCount}</p>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">tours</p>
                     </div>
                   </motion.div>
                 );

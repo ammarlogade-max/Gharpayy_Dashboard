@@ -157,9 +157,10 @@ type AddLeadDialogProps = {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   editingLead?: LeadWithRelations | null;
+  layout?: 'dialog' | 'page';
 };
 
-const AddLeadDialog = ({ trigger, open: controlledOpen, onOpenChange, editingLead }: AddLeadDialogProps) => {
+const AddLeadDialog = ({ trigger, open: controlledOpen, onOpenChange, editingLead, layout = 'dialog' }: AddLeadDialogProps) => {
   const { user } = useAuth();
   const canAddLead = user && ['super_admin', 'manager', 'admin', 'member'].includes(user.role);
   const isEditMode = Boolean(editingLead);
@@ -387,21 +388,20 @@ const AddLeadDialog = ({ trigger, open: controlledOpen, onOpenChange, editingLea
     finally { setBulkBusy(false); }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) { setRawText(""); setParsed(null); setEdited(null); setBulkText(""); setBulkPreview(null); setSessionLeads([]); setShowMatcher(false); } }}>
-      {!isEditMode && (
-        <DialogTrigger asChild disabled={!canAddLead}>
-          {trigger || (
-            <Button size="sm" className="gap-1.5 text-xs" disabled={!canAddLead} title={!canAddLead ? 'Only Super Admins, managers, and admins can add leads' : ''}>
-              <Plus size={13} /> Add Lead
-            </Button>
-          )}
-        </DialogTrigger>
-      )}
-      <DialogContent className="w-[95vw] sm:max-w-[500px] h-[90vh] sm:h-[85vh] p-0 border-0 bg-transparent shadow-none [&>button]:hidden">
-        <DialogTitle className="sr-only">{isEditMode ? 'Edit Lead' : 'Add Lead'}</DialogTitle>
-        {showMatcher && <AIMatcher onClose={() => setShowMatcher(false)} />}
-        <div style={{ fontFamily: T.sans, background: T.bg0, height: "100%", color: T.text, borderRadius: 16, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 8px 60px rgba(0,0,0,0.12)" }}>
+  const resetStateOnClose = () => {
+    setRawText('');
+    setParsed(null);
+    setEdited(null);
+    setBulkText('');
+    setBulkPreview(null);
+    setSessionLeads([]);
+    setShowMatcher(false);
+  };
+
+  const intakeContent = (
+    <>
+      {showMatcher && <AIMatcher onClose={() => setShowMatcher(false)} />}
+      <div style={{ fontFamily: T.sans, background: T.bg0, height: '100%', color: T.text, borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 8px 60px rgba(0,0,0,0.12)', border: `1px solid ${T.line}` }}>
           <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap');`}</style>
 
           {/* TOP BAR */}
@@ -409,7 +409,7 @@ const AddLeadDialog = ({ trigger, open: controlledOpen, onOpenChange, editingLea
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ width: 35, height: 35, borderRadius: 9, background: `linear-gradient(135deg,${T.acc},${T.acc2})`, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 16, color: "#fff", boxShadow: `0 0 20px rgba(108,92,231,0.25)` }}>G</div>
               <div>
-                <div style={{ fontFamily: T.mono, fontSize: 13, fontWeight: 600, color: T.hi, letterSpacing: "0.04em" }}>{isEditMode ? 'Lead Edit' : 'Lead Intake'}</div>
+                <div style={{ fontFamily: T.mono, fontSize: 13, fontWeight: 600, color: T.hi, letterSpacing: "0.04em" }}>{isEditMode ? 'MYT LEAD EDIT' : 'MYT LEAD INTAKE'}</div>
                 <div style={{ fontSize: 9, color: T.dim, letterSpacing: "0.1em", textTransform: "uppercase" as const }}>Geo Intelligence Engine</div>
               </div>
             </div>
@@ -564,6 +564,28 @@ const AddLeadDialog = ({ trigger, open: controlledOpen, onOpenChange, editingLea
 
           </div>
         </div>
+    </>
+  );
+
+  if (layout === 'page') {
+    if (!open) return null;
+    return <div className="h-full w-full">{intakeContent}</div>;
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) resetStateOnClose(); }}>
+      {!isEditMode && (
+        <DialogTrigger asChild disabled={!canAddLead}>
+          {trigger || (
+            <Button size="sm" className="gap-1.5 text-xs" disabled={!canAddLead} title={!canAddLead ? 'Only Super Admins, managers, admins, and members can add leads' : ''}>
+              <Plus size={13} /> Add Lead
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
+      <DialogContent className="w-[95vw] sm:max-w-[500px] h-[90vh] sm:h-[85vh] p-0 border-0 bg-transparent shadow-none [&>button]:hidden">
+        <DialogTitle className="sr-only">{isEditMode ? 'Edit Lead' : 'Add Lead'}</DialogTitle>
+        {intakeContent}
       </DialogContent>
     </Dialog>
   );

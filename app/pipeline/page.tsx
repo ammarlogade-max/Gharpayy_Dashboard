@@ -1,24 +1,25 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import AppLayout from '@/components/AppLayout';
 import LeadCard from '@/components/LeadCard';
 import LeadDetailDrawer from '@/components/LeadDetailDrawer';
 import EditLeadDialog from '@/components/EditLeadDialog';
-import { useLeads, usePipelineStages, useSavePipelineStages, useUpdateLead, type PipelineStageConfig } from '@/hooks/useCrmData';
+import { useLeadsInfiniteByStatus, usePipelineStages, useSavePipelineStages, useUpdateLead, type PipelineStageConfig } from '@/hooks/useCrmData';
 import { PIPELINE_STAGES, type PipelineStage } from '@/types/crm';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   DndContext, DragOverlay, pointerWithin, rectIntersection,
   PointerSensor, TouchSensor,
-  useSensor, useSensors, type DragStartEvent, type DragEndEvent,
+  useSensor, useSensors, type DragStartEvent, type DragEndEvent, type DragMoveEvent,
   type CollisionDetection,
 } from '@dnd-kit/core';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { toast } from 'sonner';
 import type { LeadWithRelations } from '@/hooks/useCrmData';
 import { motion } from 'framer-motion';
-import { ArrowRight, MoreVertical, Plus, Trash2, GripVertical } from 'lucide-react';
+import { MoreVertical, Plus, Trash2, GripVertical } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,6 +30,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+
+const PIPELINE_STAGE_PAGE_SIZE = 50;
 
 function DroppableColumn({ id, children }: { id: string; children: React.ReactNode }) {
   const { setNodeRef, isOver } = useDroppable({ id });
@@ -82,6 +85,103 @@ function DraggableCard({ lead, onClick, onEdit }: { lead: LeadWithRelations; onC
           </div>
         }
       />
+    </div>
+  );
+}
+
+function PipelineStageColumn({
+  stage,
+  onOpenDetail,
+  onEdit,
+  minHeight,
+  onHeightChange,
+}: {
+  stage: PipelineStageConfig;
+  onOpenDetail: (lead: LeadWithRelations) => void;
+  onEdit: (lead: LeadWithRelations) => void;
+  minHeight?: number;
+  onHeightChange: (stageKey: string, height: number) => void;
+}) {
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    fetchNextPage,
+    hasNextPage,
+  } = useLeadsInfiniteByStatus(stage.key, PIPELINE_STAGE_PAGE_SIZE);
+  const columnRef = useRef<HTMLDivElement | null>(null);
+  const lastReportedHeightRef = useRef<number | null>(null);
+
+  const stageLeads = useMemo(
+    () => Array.from(
+      new Map((data?.pages || []).flatMap((page) => page.leads).map((lead) => [lead.id, lead])).values()
+    ),
+    [data]
+  );
+  const totalLeads = data?.pages?.[0]?.total ?? stageLeads.length;
+  const visibleCount = stageLeads.length;
+
+  useEffect(() => {
+    const node = columnRef.current;
+    if (!node) return;
+
+    const currentHeight = node.offsetHeight;
+    if (lastReportedHeightRef.current === currentHeight) return;
+    lastReportedHeightRef.current = currentHeight;
+    onHeightChange(stage.key, currentHeight);
+  }, [onHeightChange, stage.key, stageLeads.length]);
+
+  return (
+    <div className="flex self-stretch">
+      <motion.div
+        ref={columnRef}
+        className="pipeline-column bg-secondary/30 w-[272px] min-h-[calc(100vh-260px)] flex flex-col"
+        style={minHeight ? { minHeight: `${minHeight}px` } : undefined}
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+      >
+        <div className="flex items-center justify-between mb-2 px-1">
+          <div className="flex items-center gap-1.5">
+            <h3 className="font-semibold text-[11px] text-foreground">{stage.label}</h3>
+          </div>
+          <span className="text-[10px] font-medium bg-card px-1.5 py-0.5 rounded-md text-muted-foreground border border-border">
+            {totalLeads}
+          </span>
+        </div>
+
+        <DroppableColumn id={stage.key}>
+          {isLoading && stageLeads.length === 0 ? (
+            <div className="space-y-2">
+              {[...Array(PIPELINE_STAGE_PAGE_SIZE)].map((_, index) => (
+                <Skeleton key={index} className="h-[92px] rounded-xl" />
+              ))}
+            </div>
+          ) : (
+            <>
+              {stageLeads.map((lead) => (
+                <DraggableCard key={lead.id} lead={lead} onClick={() => onOpenDetail(lead)} onEdit={onEdit} />
+              ))}
+              {visibleCount === 0 && (
+                <div className="text-center py-8 text-[11px] text-muted-foreground">No leads</div>
+              )}
+            </>
+          )}
+
+          {hasNextPage && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full text-[11px] mt-2"
+              onClick={() => fetchNextPage()}
+              disabled={isFetchingNextPage}
+            >
+              {isFetchingNextPage ? 'Loading...' : `Load more (${visibleCount}/${totalLeads})`}
+            </Button>
+          )}
+        </DroppableColumn>
+      </motion.div>
     </div>
   );
 }
@@ -297,21 +397,27 @@ function EditStagesDialog({
 
 const Pipeline = () => {
   const { user } = useAuth();
-  const { data: leads, isLoading } = useLeads();
-  const { data: pipelineStagesData } = usePipelineStages();
+  const { data: pipelineStagesData, isLoading } = usePipelineStages();
   const savePipelineStages = useSavePipelineStages();
   const updateLead = useUpdateLead();
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [activeLead, setActiveLead] = useState<LeadWithRelations | null>(null);
   const [selectedLead, setSelectedLead] = useState<LeadWithRelations | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<LeadWithRelations | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editStagesOpen, setEditStagesOpen] = useState(false);
+  const [columnHeights, setColumnHeights] = useState<Record<string, number>>({});
+  const [hoveredStageTooltip, setHoveredStageTooltip] = useState<{ label: string; x: number; y: number } | null>(null);
+  const dragStartPointerRef = useRef<{ x: number; y: number } | null>(null);
   const pipelineStages: PipelineStageConfig[] =
     (pipelineStagesData && pipelineStagesData.length > 0)
       ? pipelineStagesData
       : PIPELINE_STAGES.map((stage, index) => ({ ...stage, order: index }));
   const canEditStages = user?.role === 'super_admin';
+  const maxColumnHeight = useMemo(() => {
+    const heights = Object.values(columnHeights);
+    return heights.length ? Math.max(...heights) : 0;
+  }, [columnHeights]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -333,35 +439,64 @@ const Pipeline = () => {
 
     return [];
   };
-  const activeLead = leads?.find(l => l.id === activeId);
-
-  // Conversion rates between stages
-  const conversionRates = useMemo(() => {
-    if (!leads) return {};
-    const rates: Record<string, number> = {};
-    for (let i = 0; i < pipelineStages.length - 1; i++) {
-      const current = leads.filter(l => {
-        const idx = pipelineStages.findIndex(s => s.key === l.status);
-        return idx >= i;
-      }).length;
-      const next = leads.filter(l => {
-        const idx = pipelineStages.findIndex(s => s.key === l.status);
-        return idx >= i + 1;
-      }).length;
-      rates[pipelineStages[i].key] = current > 0 ? Math.round((next / current) * 100) : 0;
+  const getPointerPosition = (event: DragStartEvent['activatorEvent'] | DragMoveEvent['activatorEvent']) => {
+    if (!event) return null;
+    const nativeEvent = event as MouseEvent | TouchEvent;
+    if ('touches' in nativeEvent && nativeEvent.touches.length > 0) {
+      return { x: nativeEvent.touches[0].clientX, y: nativeEvent.touches[0].clientY };
     }
-    return rates;
-  }, [leads, pipelineStages]);
+    if ('changedTouches' in nativeEvent && nativeEvent.changedTouches.length > 0) {
+      return { x: nativeEvent.changedTouches[0].clientX, y: nativeEvent.changedTouches[0].clientY };
+    }
+    if ('clientX' in nativeEvent && 'clientY' in nativeEvent) {
+      return { x: nativeEvent.clientX, y: nativeEvent.clientY };
+    }
+    return null;
+  };
+  const handleDragStart = (event: DragStartEvent) => {
+    dragStartPointerRef.current = getPointerPosition(event.activatorEvent);
+    setHoveredStageTooltip(null);
+    setActiveLead((event.active.data.current?.lead as LeadWithRelations | undefined) || null);
+  };
+  const handleDragMove = (event: DragMoveEvent) => {
+    const overId = event.over?.id ? String(event.over.id) : null;
+    const start = dragStartPointerRef.current;
+    const label = overId && stageKeys.has(overId)
+      ? pipelineStages.find((stage) => stage.key === overId)?.label || overId
+      : null;
 
-  const handleDragStart = (event: DragStartEvent) => setActiveId(event.active.id as string);
+    if (!label || !start) {
+      setHoveredStageTooltip(null);
+      return;
+    }
+
+    const rawX = start.x + event.delta.x + 14;
+    const rawY = start.y + event.delta.y + 14;
+    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 0;
+    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 0;
+    const tooltipWidth = 220;
+    const tooltipHeight = 36;
+    const x = viewportWidth > 0
+      ? Math.max(8, Math.min(rawX, viewportWidth - tooltipWidth - 8))
+      : rawX;
+    const y = viewportHeight > 0
+      ? Math.max(8, Math.min(rawY, viewportHeight - tooltipHeight - 8))
+      : rawY;
+
+    setHoveredStageTooltip({
+      label,
+      x,
+      y,
+    });
+  };
   const handleDragEnd = async (event: DragEndEvent) => {
-    setActiveId(null);
+    setActiveLead(null);
+    setHoveredStageTooltip(null);
+    dragStartPointerRef.current = null;
     const { active, over } = event;
     if (!over) return;
     const leadId = active.id as string;
     const newStatus = over.id as PipelineStage;
-    const lead = leads?.find(l => l.id === leadId);
-    if (!lead || lead.status === newStatus) return;
     try {
       await updateLead.mutateAsync({ id: leadId, status: newStatus });
       toast.success(`Moved to ${pipelineStages.find(s => s.key === newStatus)?.label || newStatus}`);
@@ -376,6 +511,13 @@ const Pipeline = () => {
     await savePipelineStages.mutateAsync(stages);
   };
 
+  const handleColumnHeightChange = useCallback((stageKey: string, height: number) => {
+    setColumnHeights((previous) => {
+      if (previous[stageKey] === height) return previous;
+      return { ...previous, [stageKey]: height };
+    });
+  }, []);
+
   if (isLoading) {
     return (
       <AppLayout title="Pipeline" subtitle="Revenue engine — track leads through every stage">
@@ -383,6 +525,18 @@ const Pipeline = () => {
       </AppLayout>
     );
   }
+
+  const tooltipPortal = hoveredStageTooltip
+    ? createPortal(
+        <div
+          className="pointer-events-none fixed z-[10000] max-w-[220px] rounded-full border border-accent/30 bg-accent px-3 py-1 text-[11px] font-semibold text-accent-foreground shadow-lg"
+          style={{ left: hoveredStageTooltip.x, top: hoveredStageTooltip.y }}
+        >
+          {hoveredStageTooltip.label}
+        </div>,
+        document.body
+      )
+    : null;
 
   return (
     <AppLayout
@@ -398,54 +552,20 @@ const Pipeline = () => {
         </div>
       }
     >
-      <DndContext sensors={sensors} collisionDetection={columnOnlyCollision} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={columnOnlyCollision} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
+        {tooltipPortal}
         <div className="overflow-x-auto pb-4">
-          <div className="flex gap-2 min-w-max">
-            {pipelineStages.map((stage, i) => {
-              const stageLeads = leads?.filter(l => l.status === stage.key) || [];
-              const rate = conversionRates[stage.key];
-              return (
-                <div key={stage.key} className="flex items-start">
-                  <motion.div
-                    className="pipeline-column bg-secondary/30 w-[272px] flex flex-col"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25, delay: i * 0.03 }}
-                  >
-                    <div className="flex items-center justify-between mb-2 px-1">
-                      <div className="flex items-center gap-1.5">
-                        <h3 className="font-semibold text-[11px] text-foreground">{stage.label}</h3>
-                      </div>
-                      <span className="text-[10px] font-medium bg-card px-1.5 py-0.5 rounded-md text-muted-foreground border border-border">
-                        {stageLeads.length}
-                      </span>
-                    </div>
-                    <DroppableColumn id={stage.key}>
-                      {stageLeads.map(lead => (
-                        <DraggableCard key={lead.id} lead={lead} onClick={() => openDetail(lead)} onEdit={openEdit} />
-                      ))}
-                      {stageLeads.length === 0 && (
-                        <div className="text-center py-8 text-[11px] text-muted-foreground">No leads</div>
-                      )}
-                    </DroppableColumn>
-                  </motion.div>
-
-                  {/* Conversion arrow between stages */}
-                  {i < pipelineStages.length - 1 && (
-                    <div className="flex flex-col items-center justify-start pt-8 px-0.5 min-w-[28px]">
-                      <ArrowRight size={10} className="text-muted-foreground/40" />
-                      {rate !== undefined && (
-                        <span className={`text-[9px] font-bold mt-0.5 ${
-                          rate >= 50 ? 'status-good' : rate >= 25 ? 'status-warn' : 'status-bad'
-                        }`}>
-                          {rate}%
-                        </span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="flex items-stretch gap-2 min-w-max min-h-[calc(100vh-260px)]">
+            {pipelineStages.map((stage) => (
+              <PipelineStageColumn
+                key={stage.key}
+                stage={stage}
+                onOpenDetail={openDetail}
+                onEdit={openEdit}
+                minHeight={maxColumnHeight}
+                onHeightChange={handleColumnHeightChange}
+              />
+            ))}
           </div>
         </div>
 

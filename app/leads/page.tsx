@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import AppLayout from '@/components/AppLayout';
-import AddLeadDialog from '@/components/AddLeadDialog';
 import EditLeadDialog from '@/components/EditLeadDialog';
-import { useLeadsPaginated, useOfficeZones, usePipelineStages } from '@/hooks/useCrmData';
-import { useBulkUpdateLeads, useDeleteLeads } from '@/hooks/useLeadDetails';
+import { useAllVisibleLeads, useOfficeZones, usePipelineStages, useCreateVisit, useProperties, useVisits, type LeadsQueryFilters } from '@/hooks/useCrmData';
+import { useBulkUpdateLeads } from '@/hooks/useLeadDetails';
 import { useUpdateLead, useAgents, type LeadWithRelations } from '@/hooks/useCrmData';
 import { PIPELINE_STAGES, SOURCE_LABELS } from '@/types/crm';
-import { Filter, Download, Trash2, PhoneCall, MessageCircle, MoreVertical, MapPin, ChevronDown, ChevronUp, Check } from 'lucide-react';
+import { Filter, Download, PhoneCall, MessageCircle, MoreVertical, MapPin, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Check, Loader2, CalendarDays, Plus } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,12 +20,28 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
-import { T, QUALITY, GEO_TECH_PARKS, FDISPLAY } from '@/lib/leadGeoData';
+import { T, QUALITY, GEO_TECH_PARKS } from '@/lib/leadGeoData';
 import { parseMoveInV2, parseBudgetV2 } from '@/lib/leadParserV2';
+import { LEADS_UPDATED_AT_KEY, getLeadsUpdatedStamp } from '@/lib/leadSync';
 import { ZonePill, BudgetChips, GeoIntelPanel } from '@/components/LeadUIAtoms';
+import LogActivitySheet from '@/components/LogActivitySheet';
+import LeadsProgressPanelButton from '@/components/LeadsProgressPanelButton';
+import MemberDailyReminderPopup from '@/components/MemberDailyReminderPopup';
+import {
+  actColor,
+  actIcon,
+  formatActivityDate,
+  getAutoTags,
+  getBand,
+  getMandatoryQueue,
+  STAGE_TIMER_DEFAULTS,
+} from '@/lib/leadsActivityAndPriority';
 
 // ─── helpers to map DB lead → card display ────────────────────────
 function mapLeadMeta(lead: LeadWithRelations) {
@@ -81,6 +97,174 @@ const statusBadgeConfig: Record<string, { bg: string; color: string; border: str
   lost: { bg: 'rgba(100,116,139,0.08)', color: '#64748b', border: 'rgba(100,116,139,0.25)' },
 };
 
+const CURRENT_BAND_CONFIG: Record<string, { label: string; subtitle: string; color: string }> = {
+  mandatory: { label: 'MANDATORY - ACTION NOW', subtitle: 'Immediate actions required right now.', color: '#7f1d1d' },
+  fire: { label: 'FIRE - MOVE-IN <= 7 DAYS', subtitle: 'Close or lose this week.', color: '#991b1b' },
+  stuck: { label: 'STUCK - STAGE EXPIRED', subtitle: 'Days exceeded. Unblock today.', color: '#92400e' },
+  active: { label: 'IN PROGRESS', subtitle: 'Moving. Sorted by move-in date.', color: '#065f46' },
+  future: { label: 'FUTURE - MOVE-IN 45+ DAYS', subtitle: 'Qualified. Set a trigger.', color: '#1e3a8a' },
+  dormant: { label: 'DORMANT - 30+ DAYS SILENT', subtitle: 'Final attempt then mark lost.', color: '#1f2937' },
+  closed: { label: 'BOOKED / ONBOARDING', subtitle: 'Handed off to next team.', color: '#064e3b' },
+};
+
+type MyZoneBucketKey = 'missed' | 'today' | 'tomorrow' | 'hot3' | 'week1' | 'week2' | 'week3' | 'week4' | 'next_month' | 'future' | 'no_date' | 'won' | 'lost';
+
+const MY_ZONE_BUCKET_CONFIG: Record<MyZoneBucketKey, { label: string; subtitle: string; color: string; defaultOpen: boolean }> = {
+  missed: { label: '🚨 MISSED', subtitle: 'Move-in passed - not closed', color: '#b91c1c', defaultOpen: true },
+  today: { label: '🔥 TODAY', subtitle: 'Move-in today - close right now', color: '#dc2626', defaultOpen: true },
+  tomorrow: { label: '⚡ TOMORROW', subtitle: 'Last chance - T+1', color: '#f97316', defaultOpen: true },
+  hot3: { label: '🎯 T+2 → T+3', subtitle: 'Book by end of week', color: '#f59e0b', defaultOpen: true },
+  week1: { label: '📅 WEEK 1 (Day 4-7)', subtitle: 'Move-in this week', color: '#d97706', defaultOpen: false },
+  week2: { label: '📆 WEEK 2', subtitle: 'Move-in day 8-14', color: '#0f766e', defaultOpen: false },
+  week3: { label: '📆 WEEK 3', subtitle: 'Move-in day 15-21', color: '#0d9488', defaultOpen: false },
+  week4: { label: '📆 WEEK 4', subtitle: 'Move-in day 22-30', color: '#0891b2', defaultOpen: false },
+  next_month: { label: '🗓 NEXT MONTH', subtitle: '31-60 days out', color: '#0284c7', defaultOpen: false },
+  future: { label: '🔭 FUTURE', subtitle: '60+ days out - plan early', color: '#475569', defaultOpen: false },
+  no_date: { label: '❓ NO DATE SET', subtitle: 'Move-in date missing', color: '#64748b', defaultOpen: false },
+  won: { label: '🏆 WON', subtitle: 'Booked / Checked in', color: '#15803d', defaultOpen: false },
+  lost: { label: '💀 LOST', subtitle: 'Closed lost - learn from these', color: '#6b7280', defaultOpen: false },
+};
+
+const MY_ZONE_BUCKET_ORDER: MyZoneBucketKey[] = [
+  'missed',
+  'today',
+  'tomorrow',
+  'hot3',
+  'week1',
+  'week2',
+  'week3',
+  'week4',
+  'next_month',
+  'future',
+  'no_date',
+  'won',
+  'lost',
+];
+
+const MY_ZONE_OPEN_DEFAULTS: Record<MyZoneBucketKey, boolean> = {
+  missed: true,
+  today: true,
+  tomorrow: true,
+  hot3: true,
+  week1: false,
+  week2: false,
+  week3: false,
+  week4: false,
+  next_month: false,
+  future: false,
+  no_date: false,
+  won: false,
+  lost: false,
+};
+
+type DisplayRow =
+  | { kind: 'header'; band: string }
+  | { kind: 'lead'; band: string; lead: LeadWithRelations }
+  | { kind: 'footer'; band: string };
+const SECTION_PAGE_SIZE = 50;
+
+function atStartOfDay(value: unknown): Date | null {
+  if (!value) return null;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return null;
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function getTodayStart() {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+}
+
+function daysUntilNormalized(value: unknown): number | null {
+  const target = atStartOfDay(value);
+  if (!target) return null;
+  const today = getTodayStart();
+  return Math.floor((target.getTime() - today.getTime()) / 86400000);
+}
+
+function daysSinceNormalized(value: unknown): number | null {
+  const source = atStartOfDay(value);
+  if (!source) return null;
+  const today = getTodayStart();
+  return Math.floor((today.getTime() - source.getTime()) / 86400000);
+}
+
+function normalizeStage(status: string | undefined | null) {
+  return String(status || '').trim().toLowerCase();
+}
+
+function isWonStage(status: string | undefined | null) {
+  const stage = normalizeStage(status);
+  if (!stage) return false;
+  if (['booked', 'check_in', 'checkin', 'won', 'win'].includes(stage)) return true;
+  return /(booked|booking|check[_\s-]?in|won|win)/.test(stage);
+}
+
+function isLostStage(status: string | undefined | null) {
+  return normalizeStage(status) === 'lost';
+}
+
+function isClosedStage(status: string | undefined | null) {
+  return isWonStage(status) || isLostStage(status);
+}
+
+function getBucket(lead: LeadWithRelations): MyZoneBucketKey {
+  if (isWonStage(lead.status)) return 'won';
+  if (isLostStage(lead.status)) return 'lost';
+
+  if (!lead.moveInDate) return 'no_date';
+  const days = daysUntilNormalized(lead.moveInDate);
+  if (days === null) return 'no_date';
+  if (days < 0) return 'missed';
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  if (days <= 3) return 'hot3';
+  if (days <= 7) return 'week1';
+  if (days <= 14) return 'week2';
+  if (days <= 21) return 'week3';
+  if (days <= 30) return 'week4';
+  if (days <= 60) return 'next_month';
+  return 'future';
+}
+
+function urgencyScore(lead: LeadWithRelations) {
+  let score = 0;
+  const moveInDays = daysUntilNormalized(lead.moveInDate);
+  const lastContactDays = daysSinceNormalized(lead.lastOn || lead.lastActivityAt) ?? 999;
+  const daysInStage = daysSinceNormalized(lead.stageOn) ?? 0;
+  const touches = Number(lead.touches || 0);
+  const stageRule = STAGE_TIMER_DEFAULTS[normalizeStage(lead.status)];
+
+  if (moveInDays !== null) {
+    if (moveInDays < 0) score += 1000;
+    else if (moveInDays === 0) score += 500;
+    else if (moveInDays <= 1) score += 300;
+    else if (moveInDays <= 3) score += 200;
+    else if (moveInDays <= 7) score += 100;
+    else score += Math.max(0, 80 - moveInDays);
+  }
+
+  if (touches === 0) score += 200;
+  if (lastContactDays > 7) score += lastContactDays;
+
+  if (stageRule?.maxDays && daysInStage > stageRule.maxDays) {
+    score += (daysInStage - stageRule.maxDays) * 10;
+  }
+
+  return score;
+}
+
+function getLostReasonLabel(lead: LeadWithRelations) {
+  const direct = (lead as any).lostReason || (lead.parsedMetadata as any)?.lostReason;
+  if (direct && String(direct).trim()) return String(direct).trim();
+  const notes = String(lead.notes || '');
+  const match = notes.match(/lost\s*reason\s*[:\-]\s*([^\n;]+)/i);
+  if (match?.[1]) return match[1].trim();
+  return 'Unknown / Not captured';
+}
+
 // ─── Compute a simple progress from lead fields ────────────────────────
 function computeLeadProgress(lead: LeadWithRelations) {
   const fields = [lead.name, lead.phone, lead.email, lead.preferredLocation, lead.budget, lead.moveInDate, lead.profession, lead.roomType, lead.needPreference, lead.specialRequests];
@@ -94,44 +278,280 @@ function computeFieldsMissing(lead: LeadWithRelations) {
   return fields.filter(f => !f).length;
 }
 
+function objectIdLike() {
+  const seed = `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
+  return seed.padEnd(24, '0').slice(0, 24);
+}
+
+function extractMeta(notes: string, key: string) {
+  const re = new RegExp(`${key}:([^;]+)`, 'i');
+  const match = String(notes || '').match(re);
+  return match?.[1]?.trim() || '';
+}
+
 const Leads = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSource, setFilterSource] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterDuplicate, setFilterDuplicate] = useState<string>('all');
   const [filterZone, setFilterZone] = useState<string>('all');
+  const [filterMember, setFilterMember] = useState<string>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showFiltersMobile, setShowFiltersMobile] = useState(false);
-  const [page, setPage] = useState(0);
+  const [sectionPages, setSectionPages] = useState<Record<string, number>>({});
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  const [scrollToken, setScrollToken] = useState(0);
   const [selectedLeadForEdit, setSelectedLeadForEdit] = useState<LeadWithRelations | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   
-  const [filterDateMode, setFilterDateMode] = useState<'newest' | 'oldest' | 'date' | 'month'>('newest');
+  const [filterDateMode, setFilterDateMode] = useState<'newest' | 'oldest' | 'alphabetical' | 'date' | 'month' | 'today' | 'date_range'>('newest');
   const [filterDate, setFilterDate] = useState<string>('');
   const [filterMonth, setFilterMonth] = useState<string>('');
-  
-  const PAGE_SIZE = 50;
-  const { data: paginatedData, isLoading } = useLeadsPaginated(page, PAGE_SIZE);
-  const leads = paginatedData?.leads;
-  const totalLeads = paginatedData?.total ?? 0;
-  const totalPages = Math.ceil(totalLeads / PAGE_SIZE);
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
+  const [updatingStageLeadId, setUpdatingStageLeadId] = useState<string | null>(null);
+  const [updatingStageTarget, setUpdatingStageTarget] = useState<{ leadId: string; stageKey: string } | null>(null);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleLeadId, setScheduleLeadId] = useState('');
+  const [scheduleLeadName, setScheduleLeadName] = useState('');
+  const [schedulePhone, setSchedulePhone] = useState('');
+  const [schedulePropertyName, setSchedulePropertyName] = useState('');
+  const [scheduleZoneId, setScheduleZoneId] = useState('');
+  const [schedulePendingZoneName, setSchedulePendingZoneName] = useState('');
+  const [scheduleTourDate, setScheduleTourDate] = useState(new Date().toISOString().split('T')[0]);
+  const [scheduleTourTime, setScheduleTourTime] = useState('11:00');
+  const [scheduleTourMode, setScheduleTourMode] = useState<'physical' | 'virtual'>('physical');
+  const [scheduleAssignedTo, setScheduleAssignedTo] = useState('');
+  const [scheduleAssignedSearch, setScheduleAssignedSearch] = useState('');
+  const [showAssignedOptions, setShowAssignedOptions] = useState(false);
+  const [scheduleBudget, setScheduleBudget] = useState('12000');
+  const [scheduleRemarks, setScheduleRemarks] = useState('');
+  const [existingTourInfo, setExistingTourInfo] = useState<null | {
+    leadName: string;
+    propertyName: string;
+    assignedTo: string;
+    tourTime: string;
+    tourMode: string;
+    remarks: string;
+  }>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [activityLeadId, setActivityLeadId] = useState<string | null>(null);
+  const [expandedActivityIds, setExpandedActivityIds] = useState<Set<string>>(new Set());
+  const [myZoneUrgentOpen, setMyZoneUrgentOpen] = useState(true);
+  const [myZoneBucketOpen, setMyZoneBucketOpen] = useState<Record<MyZoneBucketKey, boolean>>(MY_ZONE_OPEN_DEFAULTS);
+  const [bandOpen, setBandOpen] = useState<Record<string, boolean>>({
+    mandatory: true,
+    fire: true,
+    stuck: true,
+    active: true,
+    future: true,
+    dormant: true,
+    closed: true,
+  });
+  const queryClient = useQueryClient();
+
+  const hasValidCustomRange = (() => {
+    if (!fromDate || !toDate) return false;
+    return new Date(fromDate) <= new Date(toDate);
+  })();
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearchQuery(searchQuery), 350);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    let lastKnownStamp = getLeadsUpdatedStamp();
+
+    const refreshLeads = () => {
+      void queryClient.invalidateQueries({ queryKey: ['leads'] });
+      void queryClient.invalidateQueries({ queryKey: ['leads-all-visible'] });
+      void queryClient.invalidateQueries({ queryKey: ['leads-infinite'] });
+      void queryClient.refetchQueries({ queryKey: ['leads-all-visible'], type: 'active' });
+    };
+
+    const checkForExternalUpdates = () => {
+      const currentStamp = getLeadsUpdatedStamp();
+      if (!currentStamp || currentStamp === lastKnownStamp) return;
+      lastKnownStamp = currentStamp;
+      refreshLeads();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== LEADS_UPDATED_AT_KEY) return;
+      if (!event.newValue || event.newValue === lastKnownStamp) return;
+      lastKnownStamp = event.newValue;
+      refreshLeads();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        checkForExternalUpdates();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', checkForExternalUpdates);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', checkForExternalUpdates);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [queryClient]);
+
+  const monthRange = (() => {
+    if (!filterMonth) return null;
+    const [yearStr, monthStr] = filterMonth.split('-');
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    if (!year || !month) return null;
+    const from = `${yearStr}-${monthStr}-01`;
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const to = `${yearStr}-${monthStr}-${String(lastDay).padStart(2, '0')}`;
+    return { from, to };
+  })();
+
+  const periodForDateFilter: 'all' | 'today' | 'custom' =
+    filterDateMode === 'today'
+      ? 'today'
+      : (
+          (filterDateMode === 'date' && !!filterDate) ||
+          (filterDateMode === 'month' && !!monthRange) ||
+          (filterDateMode === 'date_range' && hasValidCustomRange)
+        )
+          ? 'custom'
+          : 'all';
+
+  const fromForDateFilter =
+    filterDateMode === 'date'
+      ? (filterDate || undefined)
+      : filterDateMode === 'month'
+        ? (monthRange?.from || undefined)
+        : filterDateMode === 'date_range' && hasValidCustomRange
+          ? fromDate
+          : undefined;
+
+  const toForDateFilter =
+    filterDateMode === 'date'
+      ? (filterDate || undefined)
+      : filterDateMode === 'month'
+        ? (monthRange?.to || undefined)
+        : filterDateMode === 'date_range' && hasValidCustomRange
+          ? toDate
+          : undefined;
+
+  const serverFilters: LeadsQueryFilters = {
+    q: debouncedSearchQuery.trim() || undefined,
+    status: filterStatus,
+    source: filterSource,
+    zone: filterZone === 'mistakes' ? 'all' : filterZone,
+    assignedMemberId: filterMember,
+    duplicate: filterDuplicate as LeadsQueryFilters['duplicate'],
+    sort: filterDateMode === 'oldest' ? 'oldest' : filterDateMode === 'alphabetical' ? 'alphabetical' : 'newest',
+    period: periodForDateFilter,
+    from: fromForDateFilter,
+    to: toForDateFilter,
+  };
+
+  useEffect(() => {
+    setSectionPages({});
+  }, [debouncedSearchQuery, filterSource, filterStatus, filterDuplicate, filterZone, filterMember, filterDateMode, filterDate, filterMonth, fromDate, toDate, hasValidCustomRange]);
+
+  const allVisibleFilters = useMemo(() => ({
+    ...serverFilters,
+    zone: serverFilters.zone === 'mistakes' ? 'all' : serverFilters.zone,
+  }), [serverFilters]);
+
+  const { data: allLeads, isLoading } = useAllVisibleLeads(allVisibleFilters);
+  const leads = allLeads;
+  const totalLeads = allLeads?.length ?? 0;
+  const subtitleCount = `${totalLeads} leads found`;
   const { data: members } = useAgents();
   const { data: officeZones } = useOfficeZones();
+  const { data: properties } = useProperties();
+  const { data: visits } = useVisits();
   const { data: pipelineStagesData } = usePipelineStages();
   const pipelineStages = (pipelineStagesData && pipelineStagesData.length > 0)
     ? pipelineStagesData
     : PIPELINE_STAGES.map((s, i) => ({ ...s, order: i }));
   const bulkUpdate = useBulkUpdateLeads();
-  const deleteLeads = useDeleteLeads();
   const updateLead = useUpdateLead();
+  const createVisit = useCreateVisit();
   const { user } = useAuth();
   const canManageLeadAssignments = ['super_admin', 'manager', 'admin', 'member'].includes(user?.role || '');
+  const canAddLead = ['super_admin', 'manager', 'admin', 'member'].includes(user?.role || '');
+  const canUseMemberFilter = ['super_admin', 'manager', 'admin'].includes(user?.role || '');
+  const isScopedZoneRole = ['admin', 'member'].includes(user?.role || '');
+  const isMemberRole = user?.role === 'member';
+  const isAdminRole = user?.role === 'admin';
+  const isAssignedByMeReadOnly = isMemberRole && filterZone === 'assigned_by_me';
+  const isMistakesTab = isMemberRole && filterZone === 'mistakes';
+  const isMyZoneTab = isMemberRole && filterZone !== 'mistakes';
+  const sectionPageKey = (scope: 'current' | 'myzone', band: string) => `${scope}:${band}`;
+  const getSectionPage = (scope: 'current' | 'myzone', band: string) => sectionPages[sectionPageKey(scope, band)] ?? 0;
+  const setSectionPage = (scope: 'current' | 'myzone', band: string, nextPage: number) => {
+    const key = sectionPageKey(scope, band);
+    setSectionPages((prev) => ({ ...prev, [key]: Math.max(0, nextPage) }))
+  };
+
+  useEffect(() => {
+    if (!scrollTarget) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const target = document.querySelector(`[data-section-focus="${scrollTarget}"]`);
+      if (target instanceof HTMLElement) {
+        const top = window.scrollY + target.getBoundingClientRect().top - 18;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      }
+      setScrollTarget(null);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [scrollTarget, scrollToken, sectionPages]);
+
+  useEffect(() => {
+    if (!filterZone) {
+      setFilterZone('all');
+    }
+  }, [user?.role, filterZone]);
+
+  useEffect(() => {
+    if (!canUseMemberFilter && filterMember !== 'all') {
+      setFilterMember('all');
+    }
+  }, [canUseMemberFilter, filterMember]);
+
+  useEffect(() => {
+    if (!isAssignedByMeReadOnly) return;
+    setExpandedId(null);
+    setSelectedIds(new Set());
+  }, [isAssignedByMeReadOnly]);
+
+  useEffect(() => {
+    if (!scheduleAssignedTo) return;
+    const selected = (members || []).find((m: any) => String(m.id || m._id || '') === scheduleAssignedTo) as any;
+    if (selected) {
+      setScheduleAssignedSearch(String(selected.name || selected.fullName || ''));
+    }
+  }, [scheduleAssignedTo, members]);
+
+  useEffect(() => {
+    if (!schedulePendingZoneName || !officeZones || officeZones.length === 0) return;
+    const zone = officeZones.find((z: any) => String(z.name || '').toLowerCase() === schedulePendingZoneName.toLowerCase());
+    if (zone) {
+      setScheduleZoneId(String(zone._id || zone.id || ''));
+      setSchedulePendingZoneName('');
+    }
+  }, [schedulePendingZoneName, officeZones]);
 
   const filtered = (leads || [])
     .filter(l => {
-      if (searchQuery) {
-        const q = searchQuery.toLowerCase();
+      if (debouncedSearchQuery) {
+        const q = debouncedSearchQuery.toLowerCase();
         const shortId = `l-${l.id.slice(-6).toLowerCase()}`;
         if (
           !l.name.toLowerCase().includes(q) &&
@@ -145,27 +565,348 @@ const Leads = () => {
       if (filterStatus !== 'all' && l.status !== filterStatus) return false;
       if (filterDuplicate === 'duplicate' && !l.isDuplicate) return false;
       if (filterDuplicate === 'unique' && l.isDuplicate) return false;
-      if (filterZone !== 'all' && (l as any).zone !== filterZone) return false;
+      if (
+        filterZone !== 'all' &&
+        filterZone !== 'my_zones' &&
+        filterZone !== 'other_zones' &&
+        filterZone !== 'assigned_by_me' &&
+        filterZone !== 'assigned_to_me' &&
+        filterZone !== 'mistakes' &&
+        (l as any).zone !== filterZone
+      ) return false;
       
-      if (filterDateMode === 'date' || filterDateMode === 'month') {
-        if (!l.moveInDate) return false;
-        const parsed = parseMoveInV2(l.moveInDate);
-        if (!parsed || !parsed.resolved) return false;
-        const leadDate = parsed.resolved;
-        if (filterDateMode === 'date' && filterDate) {
-          const filterDateObj = new Date(filterDate);
-          if (leadDate.getFullYear() !== filterDateObj.getFullYear() || leadDate.getMonth() !== filterDateObj.getMonth() || leadDate.getDate() !== filterDateObj.getDate()) return false;
-        } else if (filterDateMode === 'month' && filterMonth) {
-          const [year, month] = filterMonth.split('-').map(Number);
-          if (leadDate.getFullYear() !== year || leadDate.getMonth() + 1 !== month) return false;
+      return true;
+    });
+
+  const mandatoryQueue = useMemo(
+    () => getMandatoryQueue(filtered, String(user?.id || '')),
+    [filtered, user?.id]
+  );
+
+  const mandatoryLeadIds = useMemo(
+    () => new Set(mandatoryQueue.map((item) => item.leadId)),
+    [mandatoryQueue]
+  );
+
+  const currentGroupedBands = useMemo(() => {
+    const groups: Record<string, LeadWithRelations[]> = {
+      mandatory: [],
+      fire: [],
+      stuck: [],
+      active: [],
+      future: [],
+      dormant: [],
+      closed: [],
+    };
+
+    groups.mandatory = mandatoryQueue
+      .map((item) => filtered.find((lead) => lead.id === item.leadId))
+      .filter((lead): lead is LeadWithRelations => Boolean(lead));
+
+    filtered.forEach((lead) => {
+      // Keep sections mutually exclusive so one lead is shown in only one section at a time.
+      if (mandatoryLeadIds.has(lead.id)) return;
+      const band = getBand(lead) || 'active';
+      if (!groups[band]) groups[band] = [];
+      groups[band].push(lead);
+    });
+
+    const sortByMoveIn = (a: LeadWithRelations, b: LeadWithRelations) => {
+      const da = a.moveInDate ? new Date(a.moveInDate).getTime() : Number.POSITIVE_INFINITY;
+      const db = b.moveInDate ? new Date(b.moveInDate).getTime() : Number.POSITIVE_INFINITY;
+      return da - db;
+    };
+
+    Object.keys(groups).forEach((band) => {
+      if (band === 'mandatory') return;
+      groups[band].sort(sortByMoveIn);
+    });
+    return groups;
+  }, [filtered, mandatoryLeadIds, mandatoryQueue]);
+
+  const currentOrderedBandKeys = ['mandatory', 'fire', 'stuck', 'active', 'future', 'dormant', 'closed'];
+
+  const currentBandWindows = useMemo(() => {
+    return currentOrderedBandKeys.reduce((acc, band) => {
+      const leadsForBand = currentGroupedBands[band] || [];
+      const total = leadsForBand.length;
+      const totalPages = Math.max(1, Math.ceil(total / SECTION_PAGE_SIZE));
+      const page = Math.min(getSectionPage('current', band), totalPages - 1);
+      const start = page * SECTION_PAGE_SIZE;
+      const visibleLeads = leadsForBand.slice(start, start + SECTION_PAGE_SIZE);
+      acc[band] = {
+        total,
+        totalPages,
+        page,
+        start,
+        end: Math.min(start + SECTION_PAGE_SIZE, total),
+        visibleIds: new Set(visibleLeads.map((lead) => lead.id)),
+      };
+      return acc;
+    }, {} as Record<string, { total: number; totalPages: number; page: number; start: number; end: number; visibleIds: Set<string> }>);
+  }, [currentGroupedBands, sectionPages]);
+
+  const currentDisplayRows = useMemo(() => {
+    const rows: DisplayRow[] = [];
+
+    currentOrderedBandKeys.forEach((band) => {
+      const leadsForBand = currentGroupedBands[band] || [];
+      if (leadsForBand.length === 0) return;
+      const window = currentBandWindows[band];
+      const totalPages = window?.totalPages || 1;
+      rows.push({ kind: 'header', band });
+      if (bandOpen[band] !== false) {
+        leadsForBand.forEach((lead) => {
+          if (window?.visibleIds.has(lead.id)) {
+            rows.push({ kind: 'lead', band, lead });
+          }
+        });
+        if (totalPages > 1) {
+          rows.push({ kind: 'footer', band });
         }
       }
-      return true;
-    })
-    .sort((a, b) => {
-      if (filterDateMode === 'oldest') return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
+
+    return rows;
+  }, [currentBandWindows, currentGroupedBands, bandOpen]);
+
+  const myZoneBuckets = useMemo(() => {
+    const groups: Record<MyZoneBucketKey, LeadWithRelations[]> = {
+      missed: [],
+      today: [],
+      tomorrow: [],
+      hot3: [],
+      week1: [],
+      week2: [],
+      week3: [],
+      week4: [],
+      next_month: [],
+      future: [],
+      no_date: [],
+      won: [],
+      lost: [],
+    };
+
+    filtered.forEach((lead) => {
+      const bucket = getBucket(lead);
+      groups[bucket].push(lead);
+    });
+
+    MY_ZONE_BUCKET_ORDER.forEach((bucket) => {
+      groups[bucket].sort((a, b) => urgencyScore(b) - urgencyScore(a));
+    });
+
+    return groups;
+  }, [filtered]);
+
+  const myZoneUrgentQueue = useMemo(() => {
+    const queue: Array<{ lead: LeadWithRelations; priority: 1 | 2 | 3; reason: string; cta: string; score: number }> = [];
+
+    for (const lead of filtered) {
+      if (isClosedStage(lead.status)) continue;
+
+      const touches = Number(lead.touches || 0);
+      const createdDays = daysSinceNormalized(lead.createdAt) || 0;
+      const moveInDays = daysUntilNormalized(lead.moveInDate);
+      const visitDoneDays = daysSinceNormalized(lead.visitDoneOn);
+      const lastContactDays = daysSinceNormalized(lead.lastOn || lead.lastActivityAt);
+      const stageDays = daysSinceNormalized(lead.stageOn) || 0;
+      const followUpDays = daysUntilNormalized(lead.nextOn);
+      const stageRule = STAGE_TIMER_DEFAULTS[normalizeStage(lead.status)];
+
+      if (touches === 0) {
+        queue.push({ lead, priority: 1, reason: `Never called - added ${createdDays}d ago`, cta: 'Call Now', score: urgencyScore(lead) });
+        continue;
+      }
+
+      if (moveInDays !== null && moveInDays < 0) {
+        queue.push({ lead, priority: 1, reason: `Move-in was ${Math.abs(moveInDays)}d ago - close or mark lost`, cta: 'Act Now', score: urgencyScore(lead) });
+        continue;
+      }
+
+      if (moveInDays === 0) {
+        queue.push({ lead, priority: 1, reason: 'Move-in TODAY - close right now', cta: 'Close Now', score: urgencyScore(lead) });
+        continue;
+      }
+
+      if (visitDoneDays !== null && visitDoneDays >= 2 && (lastContactDays === null || lastContactDays >= 2)) {
+        queue.push({ lead, priority: 1, reason: `Visit done ${visitDoneDays}d ago - no follow-up`, cta: 'Call Now', score: urgencyScore(lead) });
+        continue;
+      }
+
+      if (normalizeStage(lead.status) === 'agreement_sent' && stageDays >= 2) {
+        queue.push({ lead, priority: 2, reason: 'Agreement sent 2+ days ago - chase signature', cta: 'Follow Up', score: urgencyScore(lead) });
+        continue;
+      }
+
+      if (moveInDays === 1) {
+        queue.push({ lead, priority: 2, reason: 'Move-in TOMORROW - last chance to close', cta: 'Close Now', score: urgencyScore(lead) });
+        continue;
+      }
+
+      if (stageRule?.maxDays && stageDays > stageRule.maxDays) {
+        queue.push({ lead, priority: 2, reason: `Stage expired ${stageDays - stageRule.maxDays}d ago: ${stageRule.rule || stageRule.label}`, cta: 'Act Now', score: urgencyScore(lead) });
+        continue;
+      }
+
+      if (followUpDays !== null && followUpDays < 0) {
+        queue.push({ lead, priority: 3, reason: `Follow-up ${Math.abs(followUpDays)}d overdue`, cta: 'Follow Up', score: urgencyScore(lead) });
+      }
+    }
+
+    queue.sort((a, b) => {
+      if (a.priority !== b.priority) return a.priority - b.priority;
+      return b.score - a.score;
+    });
+
+    return queue;
+  }, [filtered]);
+
+  const myZoneGroupedBands = useMemo(() => {
+    const urgentLeads = myZoneUrgentQueue.map((item) => item.lead);
+    return {
+      ...myZoneBuckets,
+      urgent: urgentLeads,
+    } as Record<string, LeadWithRelations[]>;
+  }, [myZoneBuckets, myZoneUrgentQueue]);
+
+  const myZoneUrgentWindow = useMemo(() => {
+    const leadsForBand = myZoneUrgentQueue.map((item) => item.lead);
+    const total = leadsForBand.length;
+    const totalPages = Math.max(1, Math.ceil(total / SECTION_PAGE_SIZE));
+    const page = Math.min(getSectionPage('myzone', 'urgent'), totalPages - 1);
+    const start = page * SECTION_PAGE_SIZE;
+    const visibleLeads = leadsForBand.slice(start, start + SECTION_PAGE_SIZE);
+
+    return {
+      total,
+      totalPages,
+      page,
+      start,
+      end: Math.min(start + SECTION_PAGE_SIZE, total),
+      visibleIds: new Set(visibleLeads.map((lead) => lead.id)),
+    };
+  }, [myZoneUrgentQueue, sectionPages]);
+
+  const myZoneBandWindows = useMemo(() => {
+    return MY_ZONE_BUCKET_ORDER.reduce((acc, band) => {
+      const leadsForBand = myZoneBuckets[band] || [];
+      const total = leadsForBand.length;
+      const totalPages = Math.max(1, Math.ceil(total / SECTION_PAGE_SIZE));
+      const page = Math.min(getSectionPage('myzone', band), totalPages - 1);
+      const start = page * SECTION_PAGE_SIZE;
+      const visibleLeads = leadsForBand.slice(start, start + SECTION_PAGE_SIZE);
+      acc[band] = {
+        total,
+        totalPages,
+        page,
+        start,
+        end: Math.min(start + SECTION_PAGE_SIZE, total),
+        visibleIds: new Set(visibleLeads.map((lead) => lead.id)),
+      };
+      return acc;
+    }, {} as Record<string, { total: number; totalPages: number; page: number; start: number; end: number; visibleIds: Set<string> }>);
+  }, [myZoneBuckets, sectionPages]);
+
+  const myZoneDisplayRows = useMemo(() => {
+    const rows: DisplayRow[] = [];
+
+    const urgentLeads = myZoneUrgentQueue.map((item) => item.lead);
+    if (urgentLeads.length > 0) {
+      const urgentTotalPages = myZoneUrgentWindow.totalPages;
+      rows.push({ kind: 'header', band: 'urgent' });
+      if (myZoneUrgentOpen) {
+        urgentLeads.forEach((lead) => {
+          if (myZoneUrgentWindow.visibleIds.has(lead.id)) {
+            rows.push({ kind: 'lead', band: 'urgent', lead });
+          }
+        });
+        if (urgentTotalPages > 1) {
+          rows.push({ kind: 'footer', band: 'urgent' });
+        }
+      }
+    }
+
+    MY_ZONE_BUCKET_ORDER.forEach((bucket) => {
+      const leadsForBucket = myZoneBuckets[bucket];
+      if (!leadsForBucket || leadsForBucket.length === 0) return;
+      const window = myZoneBandWindows[bucket];
+      rows.push({ kind: 'header', band: bucket });
+      if (myZoneBucketOpen[bucket] !== false) {
+        leadsForBucket.forEach((lead) => {
+          if (window?.visibleIds.has(lead.id)) {
+            rows.push({ kind: 'lead', band: bucket, lead });
+          }
+        });
+        if ((window?.totalPages || 1) > 1) {
+          rows.push({ kind: 'footer', band: bucket });
+        }
+      }
+    });
+
+    return rows;
+  }, [myZoneBandWindows, myZoneBuckets, myZoneBucketOpen, myZoneUrgentOpen, myZoneUrgentQueue, myZoneUrgentWindow.visibleIds]);
+
+  const activeGroupedBands = isMyZoneTab ? myZoneGroupedBands : currentGroupedBands;
+  const activeDisplayRows = isMyZoneTab ? myZoneDisplayRows : currentDisplayRows;
+  const activeBandConfig: Record<string, { label: string; subtitle: string; color: string }> = isMyZoneTab
+    ? {
+        ...MY_ZONE_BUCKET_CONFIG,
+        urgent: { label: '⚠ URGENT', subtitle: 'Immediate action queue for active leads', color: '#991b1b' },
+      }
+    : CURRENT_BAND_CONFIG;
+
+  const mistakesData = useMemo(() => {
+    const openLeads = filtered.filter((lead) => !isClosedStage(lead.status));
+    const lostLeads = filtered.filter((lead) => isLostStage(lead.status));
+
+    const ourFaultLeads = openLeads.filter((lead) => {
+      const ageDays = daysSinceNormalized(lead.createdAt) ?? 0;
+      const lastContactDays = daysSinceNormalized(lead.lastOn || lead.lastActivityAt);
+      return ageDays >= 15 && (lastContactDays === null || lastContactDays >= 7);
+    });
+
+    const missedLeads = openLeads.filter((lead) => {
+      const moveInDays = daysUntilNormalized(lead.moveInDate);
+      return moveInDays !== null && moveInDays < 0;
+    });
+
+    const neverCalledLeads = openLeads.filter((lead) => Number(lead.touches || 0) === 0);
+
+    const lostReasonMap = new Map<string, number>();
+    lostLeads.forEach((lead) => {
+      const reason = getLostReasonLabel(lead);
+      lostReasonMap.set(reason, (lostReasonMap.get(reason) || 0) + 1);
+    });
+
+    const lostReasons = Array.from(lostReasonMap.entries())
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      ourFaultLeads,
+      missedLeads,
+      neverCalledLeads,
+      lostLeads,
+      lostReasons,
+      totals: {
+        ourFault: ourFaultLeads.length,
+        missed: missedLeads.length,
+        neverCalled: neverCalledLeads.length,
+        totalLost: lostLeads.length,
+      },
+    };
+  }, [filtered]);
+
+  const statsBar = useMemo(() => {
+    const queue = mandatoryQueue.length;
+    const stuck = (currentGroupedBands.stuck || []).length;
+    const silent = filtered.filter((lead) => (lead.touches || 0) === 0).length;
+    const extra = filtered.filter((lead) => String(lead.assignedMemberId || '') !== String(user?.id || '')).length;
+    const dups = filtered.filter((lead) => !!lead.isDuplicate).length;
+
+    return { queue, stuck, silent, extra, dups };
+  }, [filtered, currentGroupedBands.stuck, mandatoryQueue.length, user?.id]);
 
   const toggleSelect = (id: string) => {
     const next = new Set(selectedIds);
@@ -191,27 +932,316 @@ const Leads = () => {
     } catch (err: any) { toast.error(err.message); }
   };
 
-  const handleBulkDelete = async () => {
-    if (selectedIds.size === 0) return;
-    if (!confirm(`Delete ${selectedIds.size} leads? This cannot be undone.`)) return;
+  const handleInlineStageChange = async (lead: LeadWithRelations, stageKey: string, stageLabel: string) => {
+    if (isAssignedByMeReadOnly || updatingStageLeadId || lead.status === stageKey) return;
     try {
-      await deleteLeads.mutateAsync(Array.from(selectedIds));
-      toast.success(`${selectedIds.size} leads deleted`);
-      setSelectedIds(new Set());
-    } catch (err: any) { toast.error(err.message); }
+      setUpdatingStageLeadId(lead.id);
+      setUpdatingStageTarget({ leadId: lead.id, stageKey });
+      await updateLead.mutateAsync({ id: lead.id, status: stageKey as any });
+      toast.success(`Lead moved to ${stageLabel}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update lead stage');
+    } finally {
+      setUpdatingStageLeadId(null);
+      setUpdatingStageTarget(null);
+    }
   };
 
-  const handleExport = () => {
-    const csv = [
-      ['Name', 'Phone', 'Email', 'Source', 'Status', 'Member', 'Location', 'Budget', 'Score'].join(','),
-      ...filtered.map(l => [l.name, l.phone, l.email || '', l.source, l.status, l.members?.name || '', l.preferredLocation || '', l.budget || '', l.leadScore ?? 0].join(','))
-    ].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'leads-export.csv';
-    a.click();
+  const buildLeadExportParams = (skip: number, limit: number) => {
+    const params = new URLSearchParams();
+    params.set('skip', String(skip));
+    params.set('limit', String(limit));
+
+    if (serverFilters.q) params.set('q', serverFilters.q);
+    if (serverFilters.status && serverFilters.status !== 'all') params.set('status', serverFilters.status);
+    if (serverFilters.source && serverFilters.source !== 'all') params.set('source', serverFilters.source);
+    if (serverFilters.zone && serverFilters.zone !== 'all') params.set('zone', serverFilters.zone);
+    if (serverFilters.duplicate && serverFilters.duplicate !== 'all') params.set('duplicate', serverFilters.duplicate);
+    if (serverFilters.sort) params.set('sort', serverFilters.sort);
+    if (serverFilters.period && serverFilters.period !== 'all') params.set('period', serverFilters.period);
+    if (serverFilters.from) params.set('from', serverFilters.from);
+    if (serverFilters.to) params.set('to', serverFilters.to);
+
+    return params;
+  };
+
+  const escapeCsvCell = (value: unknown) => {
+    const raw = value == null ? '' : String(value);
+    const escaped = raw.replace(/"/g, '""');
+    return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
+  };
+
+  const formatIsoDateTime = (value?: string | Date | null) => {
+    if (!value) return '';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+  };
+
+  const fetchAllLeadsForExport = async () => {
+    const pageSize = 100;
+    let skip = 0;
+    let total = Number.POSITIVE_INFINITY;
+    const allLeads: LeadWithRelations[] = [];
+
+    while (skip < total) {
+      const params = buildLeadExportParams(skip, pageSize);
+      const res = await fetch(`/api/leads?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to fetch all leads for export');
+
+      const data = await res.json() as { leads?: LeadWithRelations[]; total?: number };
+      const batch = data.leads || [];
+      allLeads.push(...batch);
+
+      if (typeof data.total === 'number') total = data.total;
+      if (batch.length === 0 || batch.length < pageSize) break;
+      skip += batch.length;
+    }
+
+    return allLeads;
+  };
+
+  const handleExport = async () => {
+    if (isExporting) return;
+
+    try {
+      setIsExporting(true);
+
+      const allLeads = await fetchAllLeadsForExport();
+      if (allLeads.length === 0) {
+        toast.info('No leads found to export');
+        return;
+      }
+
+      const pipelineStageLabelByKey = new Map(
+        pipelineStages.map((stage) => [String(stage.key || ''), String(stage.label || stage.key || '')])
+      );
+
+      const csv = [
+        [
+          'Lead ID',
+          'Name',
+          'Phone',
+          'Email',
+          'Pipeline Stage',
+          'Source',
+          'Zone',
+          'Assigned To',
+          'Assignment Status',
+          'Created By',
+          'Created On',
+          'Updated On',
+          'Preferred Location',
+          'Budget',
+          'Move In Date',
+          'Profession',
+          'Room Type',
+          'Need Preference',
+          'Special Requests',
+          'Is Duplicate',
+          'Duplicate Count',
+        ].join(','),
+        ...allLeads.map((l) => [
+          l.id,
+          l.name,
+          l.phone,
+          l.email || '',
+          pipelineStageLabelByKey.get(l.status) || l.status,
+          l.source,
+          (l as any).zone || '',
+          l.members?.name || '',
+          l.assignmentStatus || '',
+          l.creator?.name || '',
+          formatIsoDateTime(l.createdAt),
+          formatIsoDateTime((l as any).updatedAt),
+          l.preferredLocation || '',
+          l.budget || '',
+          l.moveInDate || '',
+          l.profession || '',
+          l.roomType || '',
+          l.needPreference || '',
+          l.specialRequests || '',
+          l.isDuplicate ? 'Yes' : 'No',
+          l.duplicateCount ?? 0,
+        ].map(escapeCsvCell).join(',')),
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `leads-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      toast.success(`Exported ${allLeads.length} leads`);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to export leads');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const openScheduleFromLead = (lead: LeadWithRelations, zoneName: string) => {
+    const now = Date.now();
+    const matchingVisits = ((visits || []) as any[])
+      .filter((visit: any) => {
+        const visitLeadId = String(
+          visit?.leadId?._id ||
+          visit?.leadId ||
+          visit?.leads?._id ||
+          visit?.leads?.id ||
+          ''
+        );
+        if (visitLeadId !== lead.id) return false;
+
+        const outcome = String(visit?.outcome || '').toLowerCase();
+        if (['completed', 'cancelled', 'no_show'].includes(outcome)) return false;
+
+        const scheduledAtMs = new Date(String(visit?.scheduledAt || visit?.scheduled_at || 0)).getTime();
+        return !Number.isNaN(scheduledAtMs) && scheduledAtMs >= now;
+      })
+      .sort((a: any, b: any) => {
+        const at = new Date(String(a?.scheduledAt || a?.scheduled_at || 0)).getTime();
+        const bt = new Date(String(b?.scheduledAt || b?.scheduled_at || 0)).getTime();
+        return at - bt;
+      });
+
+    const existingVisit = matchingVisits[0];
+    if (existingVisit) {
+      const notes = String(existingVisit?.notes || '');
+      const encodedRemarks = extractMeta(notes, 'tour_remarks');
+      let decodedRemarks = '';
+      if (encodedRemarks) {
+        try {
+          decodedRemarks = decodeURIComponent(encodedRemarks);
+        } catch {
+          decodedRemarks = encodedRemarks;
+        }
+      }
+
+      const scheduledAt = new Date(String(existingVisit?.scheduledAt || existingVisit?.scheduled_at || ''));
+      setExistingTourInfo({
+        leadName: lead.name || 'Lead',
+        propertyName: String(existingVisit?.properties?.name || extractMeta(notes, 'typed_property') || schedulePropertyName || 'Property'),
+        assignedTo: String(existingVisit?.members?.fullName || existingVisit?.members?.name || extractMeta(notes, 'assigned_to') || 'Assigned member'),
+        tourTime: Number.isNaN(scheduledAt.getTime())
+          ? 'Scheduled'
+          : scheduledAt.toLocaleString('en-GB', {
+              day: '2-digit',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true,
+            }),
+        tourMode: extractMeta(notes, 'tour_mode') || 'physical',
+        remarks: String(existingVisit?.scheduleRemarks || decodedRemarks || '').trim(),
+      });
+      setScheduleOpen(true);
+      return;
+    }
+
+    setExistingTourInfo(null);
+    setScheduleLeadId(lead.id);
+    setScheduleLeadName(lead.name || '');
+    setSchedulePhone(lead.phone || '');
+    setSchedulePropertyName('');
+    setScheduleTourDate(new Date().toISOString().split('T')[0]);
+    setScheduleTourTime('11:00');
+    setScheduleTourMode('physical');
+    setScheduleAssignedTo('');
+    setScheduleAssignedSearch('');
+    setShowAssignedOptions(false);
+    setScheduleBudget('12000');
+    setScheduleRemarks('');
+
+    const matchedZone = (officeZones || []).find((z: any) => String(z.name || '').toLowerCase() === String(zoneName || '').toLowerCase());
+    if (matchedZone) {
+      setScheduleZoneId(String(matchedZone._id || matchedZone.id || ''));
+      setSchedulePendingZoneName('');
+    } else {
+      setScheduleZoneId(String((officeZones || [])[0]?._id || (officeZones || [])[0]?.id || ''));
+      setSchedulePendingZoneName(String(zoneName || ''));
+    }
+
+    setScheduleOpen(true);
+  };
+
+  const handleScheduleTourFromLead = async () => {
+    if (!scheduleLeadId || !schedulePropertyName.trim() || !scheduleZoneId || !scheduleTourDate || !scheduleTourTime || !scheduleAssignedTo) {
+      toast.error('Please fill all required fields');
+      return;
+    }
+
+    const assignedMember = (members || []).find((m: any) => String(m.id || m._id || '') === scheduleAssignedTo) as any;
+    const zone = (officeZones || []).find((z: any) => String(z._id || z.id || '') === scheduleZoneId) as any;
+    if (!assignedMember || !zone) {
+      toast.error('Invalid zone or assigned TCM member');
+      return;
+    }
+
+    const selectedLeadAny = (leads || []).find((l: any) => String(l.id || l._id) === scheduleLeadId) as any;
+    const fallbackPropertyId =
+      String((properties || [])[0]?.id || (properties || [])[0]?._id || '') ||
+      String(selectedLeadAny?.properties?.id || selectedLeadAny?.properties?._id || '') ||
+      String(selectedLeadAny?.propertyId || '') ||
+      objectIdLike();
+
+    try {
+      const scheduledAt = new Date(`${scheduleTourDate}T${scheduleTourTime}:00`);
+      await createVisit.mutateAsync({
+        leadId: scheduleLeadId,
+        propertyId: fallbackPropertyId,
+        assignedStaffId: String(assignedMember.id || assignedMember._id || ''),
+        scheduledAt: scheduledAt.toISOString(),
+        lead_id: scheduleLeadId,
+        property_id: fallbackPropertyId,
+        assigned_staff_id: String(assignedMember.id || assignedMember._id || ''),
+        scheduled_at: scheduledAt.toISOString(),
+        scheduleRemarks: scheduleRemarks.trim() || null,
+        notes: `tour_mode:${scheduleTourMode}; zone:${zone.name}; budget:${Number(scheduleBudget) || 0}; scheduled_by:${user?.fullName || user?.username || 'system'}; scheduled_by_id:${String(user?.id || '')}; assigned_to:${assignedMember.name || assignedMember.fullName || ''}; assigned_to_id:${String(assignedMember.id || assignedMember._id || '')}; typed_property:${schedulePropertyName.trim()}; tour_remarks:${encodeURIComponent(scheduleRemarks.trim())}`,
+        phone: schedulePhone,
+      });
+
+      toast.success('Tour scheduled successfully');
+      setScheduleOpen(false);
+      setExistingTourInfo(null);
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to schedule tour');
+    }
+  };
+
+  const memberOptions = (members || [])
+    .map((member: any) => ({
+      id: String(member.id || member._id || ''),
+      name: String(member.name || member.fullName || '').trim(),
+    }))
+    .filter((member: { id: string; name: string }) => member.id && member.name);
+
+  const filteredMemberOptions = (() => {
+    const q = scheduleAssignedSearch.trim().toLowerCase();
+    if (!q) return memberOptions.slice(0, 12);
+    return memberOptions.filter((member) => member.name.toLowerCase().includes(q)).slice(0, 20);
+  })();
+
+  const handleAssignedSearchChange = (nextValue: string) => {
+    setScheduleAssignedSearch(nextValue);
+    const matched = memberOptions.find((member) => member.name.toLowerCase() === nextValue.trim().toLowerCase());
+    setScheduleAssignedTo(matched?.id || '');
+    setShowAssignedOptions(true);
+  };
+
+  const handleAssignedSelect = (member: { id: string; name: string }) => {
+    setScheduleAssignedTo(member.id);
+    setScheduleAssignedSearch(member.name);
+    setShowAssignedOptions(false);
+  };
+
+  const openLeadIntakeInNewTab = () => {
+    window.open('/leads/intake', '_blank', 'noopener,noreferrer');
+  };
+
+  const openLeadEditInNewTab = (lead: LeadWithRelations) => {
+    window.open(`/leads/intake?editId=${encodeURIComponent(lead.id)}`, '_blank', 'noopener,noreferrer');
   };
 
   if (isLoading) {
@@ -223,26 +1253,30 @@ const Leads = () => {
   }
 
   return (
-    <AppLayout title="All Leads" subtitle={`${filtered.length} leads found`} actions={<AddLeadDialog />}>
+    <AppLayout
+      title="All Leads"
+      subtitle={subtitleCount}
+      showQuickAddLead={false}
+    >
       {/* Filters Area */}
       <div className="flex flex-col gap-3 mb-5">
         <div className="flex items-center justify-between">
-          <Button variant="outline" size="sm" onClick={() => setShowFiltersMobile(!showFiltersMobile)} className="ml-1.5 md:ml-0 gap-2 h-8 text-xs rounded-xl md:hidden">
+          <Button variant="outline" size="sm" onClick={() => setShowFiltersMobile(!showFiltersMobile)} className="ml-1.5 md:ml-0 gap-1.5 h-7 text-[11px] rounded-xl md:hidden">
             <Filter size={14} /> Filters
-            {(!showFiltersMobile && (filterSource !== 'all' || filterStatus !== 'all' || filterDuplicate !== 'all' || filterZone !== 'all' || filterDateMode !== 'newest')) && <div className="w-1.5 h-1.5 rounded-full bg-accent" />}
+            {(!showFiltersMobile && (filterSource !== 'all' || filterStatus !== 'all' || filterDuplicate !== 'all' || filterZone !== 'all' || (canUseMemberFilter && filterMember !== 'all') || filterDateMode !== 'newest' || fromDate || toDate)) && <div className="w-1.5 h-1.5 rounded-full bg-accent" />}
           </Button>
 
           {/* Desktop Filters */}
-          <div className="hidden md:flex items-center gap-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          <div className="hidden md:flex items-center gap-2 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
             <Input 
               placeholder="Search Name, Phone, ID..." 
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="h-8 text-2xs rounded-xl w-48 bg-card border-border"
+              className="h-7 text-[10px] rounded-xl w-40 bg-card border-border"
             />
-            <Filter size={13} className="text-muted-foreground shrink-0" />
+            <Filter size={12} className="text-muted-foreground shrink-0" />
             <Select value={filterSource} onValueChange={setFilterSource}>
-              <SelectTrigger className="shrink-0 h-8 text-2xs rounded-xl w-auto min-w-[110px] bg-card border-border">
+              <SelectTrigger className="shrink-0 h-7 text-[10px] rounded-xl w-auto min-w-[96px] bg-card border-border px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent side="bottom" align="start">
@@ -251,7 +1285,7 @@ const Leads = () => {
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="shrink-0 h-8 text-2xs rounded-xl w-auto min-w-[110px] bg-card border-border">
+              <SelectTrigger className="shrink-0 h-7 text-[10px] rounded-xl w-auto min-w-[96px] bg-card border-border px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent side="bottom" align="start">
@@ -260,7 +1294,7 @@ const Leads = () => {
               </SelectContent>
             </Select>
             <Select value={filterDuplicate} onValueChange={setFilterDuplicate}>
-              <SelectTrigger className="shrink-0 h-8 text-2xs rounded-xl w-auto min-w-[110px] bg-card border-border">
+              <SelectTrigger className="shrink-0 h-7 text-[10px] rounded-xl w-auto min-w-[96px] bg-card border-border px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent side="bottom" align="start">
@@ -269,34 +1303,104 @@ const Leads = () => {
                 <SelectItem value="duplicate">Duplicates Only</SelectItem>
               </SelectContent>
             </Select>
+            {!isMemberRole && (
             <Select value={filterZone} onValueChange={setFilterZone}>
-              <SelectTrigger className="shrink-0 h-8 text-2xs rounded-xl w-auto min-w-[100px] bg-card border-border">
+              <SelectTrigger className="shrink-0 h-7 text-[10px] rounded-xl w-auto min-w-[88px] bg-card border-border px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent side="bottom" align="start">
-                <SelectItem value="all">All Zones</SelectItem>
-                {officeZones?.map(z => <SelectItem key={z._id} value={z.name}>{z.name}</SelectItem>)}
+                {isScopedZoneRole ? (
+                  <>
+                    {isAdminRole && <SelectItem value="all">All Leads</SelectItem>}
+                    <SelectItem value="my_zones">My Zones</SelectItem>
+                    <SelectItem value="other_zones">Other Zones</SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value="all">All Zones</SelectItem>
+                    {officeZones?.map(z => <SelectItem key={z._id} value={z.name}>{z.name}</SelectItem>)}
+                  </>
+                )}
               </SelectContent>
             </Select>
+            )}
 
-            <Select value={filterDateMode} onValueChange={(v) => { setFilterDateMode(v as any); setFilterDate(''); setFilterMonth(''); }}>
-              <SelectTrigger className="shrink-0 h-8 text-2xs rounded-xl w-auto min-w-[110px] bg-card border-border">
+            {canUseMemberFilter && (
+              <Select value={filterMember} onValueChange={setFilterMember}>
+                <SelectTrigger className="shrink-0 h-7 text-[10px] rounded-xl w-auto min-w-[110px] bg-card border-border px-2">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent side="bottom" align="start">
+                  <SelectItem value="all">All Members</SelectItem>
+                  {(members || []).map((member: any) => (
+                    <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+
+            <Select value={filterDateMode} onValueChange={(v) => { setFilterDateMode(v as any); setFilterDate(''); setFilterMonth(''); setFromDate(''); setToDate(''); }}>
+              <SelectTrigger className="shrink-0 h-7 text-[10px] rounded-xl w-auto min-w-[96px] bg-card border-border px-2">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent side="bottom" align="start">
                 <SelectItem value="newest">Newest First</SelectItem>
                 <SelectItem value="oldest">Oldest First</SelectItem>
+                <SelectItem value="alphabetical">Alphabetical (A-Z)</SelectItem>
                 <SelectItem value="date">By Date</SelectItem>
                 <SelectItem value="month">By Month</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="date_range">Date Range</SelectItem>
               </SelectContent>
             </Select>
+
+            {filterDateMode === 'date_range' && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={(fromDate && toDate) ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 px-2 text-[10px] rounded-xl gap-1"
+                  >
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    <span className="max-w-[105px] truncate">
+                      {fromDate && toDate ? `${fromDate} to ${toDate}` : 'Date Range'}
+                    </span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[245px] p-3">
+                  <div className="space-y-2">
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">From</p>
+                      <Input
+                        type="date"
+                        value={fromDate}
+                        onChange={(e) => setFromDate(e.target.value)}
+                        className="h-8 text-[11px]"
+                        aria-label="From date"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">To</p>
+                      <Input
+                        type="date"
+                        value={toDate}
+                        onChange={(e) => setToDate(e.target.value)}
+                        className="h-8 text-[11px]"
+                        aria-label="To date"
+                      />
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
             
             {filterDateMode === 'date' && (
               <input 
                 type="date" 
                 value={filterDate}
                 onChange={e => setFilterDate(e.target.value)}
-                className="shrink-0 text-2xs bg-card border border-border rounded-xl px-3 py-2 text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                className="shrink-0 text-[10px] bg-card border border-border rounded-xl px-2 py-1.5 text-foreground outline-none focus:ring-2 focus:ring-ring/30"
               />
             )}
             
@@ -305,13 +1409,13 @@ const Leads = () => {
                 type="month" 
                 value={filterMonth}
                 onChange={e => setFilterMonth(e.target.value)}
-                className="shrink-0 text-2xs bg-card border border-border rounded-xl px-3 py-2 text-foreground outline-none focus:ring-2 focus:ring-ring/30"
+                className="shrink-0 text-[10px] bg-card border border-border rounded-xl px-2 py-1.5 text-foreground outline-none focus:ring-2 focus:ring-ring/30"
               />
             )}
           </div>
 
-          <Button variant="outline" size="sm" className="mr-1.5 md:mr-0 h-[30px] md:h-8 gap-1.5 text-xs md:text-2xs rounded-lg md:rounded-xl px-3 ml-auto shrink-0" onClick={handleExport}>
-            <Download size={13} className="md:w-3 md:h-3" /> <span className="hidden sm:inline">Export</span>
+          <Button variant="outline" size="sm" className="mr-1.5 md:mr-0 h-7 md:h-7 gap-1 text-[11px] md:text-[10px] rounded-lg md:rounded-xl px-2 ml-auto shrink-0" onClick={handleExport} disabled={isExporting}>
+            {isExporting ? <Loader2 size={13} className="md:w-3 md:h-3 animate-spin" /> : <Download size={13} className="md:w-3 md:h-3" />} <span className="hidden sm:inline">Export</span>
           </Button>
         </div>
 
@@ -322,60 +1426,192 @@ const Leads = () => {
               placeholder="Search Name, Phone, ID..." 
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="h-8 text-xs rounded-lg w-full bg-card border-border"
+              className="h-7 text-[10px] rounded-lg w-full bg-card border-border"
             />
             <Select value={filterSource} onValueChange={setFilterSource}>
-              <SelectTrigger className="w-full h-9 text-xs rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full h-8 text-[10px] rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
               <SelectContent side="bottom" align="start">
                 <SelectItem value="all">All Sources</SelectItem>
                 {Object.entries(SOURCE_LABELS).map(([k, v]) => <SelectItem key={k} value={k}>{v as string}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-full h-9 text-xs rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full h-8 text-[10px] rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
               <SelectContent side="bottom" align="start">
                 <SelectItem value="all">All Stages</SelectItem>
                 {pipelineStages.map((s: any) => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}
               </SelectContent>
             </Select>
             <Select value={filterDuplicate} onValueChange={setFilterDuplicate}>
-              <SelectTrigger className="w-full h-9 text-xs rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full h-8 text-[10px] rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
               <SelectContent side="bottom" align="start">
                 <SelectItem value="all">All Records</SelectItem>
                 <SelectItem value="unique">Unique Only</SelectItem>
                 <SelectItem value="duplicate">Duplicates Only</SelectItem>
               </SelectContent>
             </Select>
+            {!isMemberRole && (
             <Select value={filterZone} onValueChange={setFilterZone}>
-              <SelectTrigger className="w-full h-9 text-xs rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-full h-8 text-[10px] rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
               <SelectContent side="bottom" align="start">
-                <SelectItem value="all">All Zones</SelectItem>
-                {officeZones?.map(z => <SelectItem key={z._id} value={z.name}>{z.name}</SelectItem>)}
+                {isScopedZoneRole ? (
+                  <>
+                    {isAdminRole && <SelectItem value="all">All Leads</SelectItem>}
+                    <SelectItem value="my_zones">My Zones</SelectItem>
+                    <SelectItem value="other_zones">Other Zones</SelectItem>
+                  </>
+                ) : (
+                  <>
+                    <SelectItem value="all">All Zones</SelectItem>
+                    {officeZones?.map(z => <SelectItem key={z._id} value={z.name}>{z.name}</SelectItem>)}
+                  </>
+                )}
               </SelectContent>
             </Select>
-            <Select value={filterDateMode} onValueChange={(v) => { setFilterDateMode(v as any); setFilterDate(''); setFilterMonth(''); }}>
-              <SelectTrigger className="w-full h-9 text-xs rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
+            )}
+            {canUseMemberFilter && (
+              <Select value={filterMember} onValueChange={setFilterMember}>
+                <SelectTrigger className="w-full h-8 text-[10px] rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
+                <SelectContent side="bottom" align="start">
+                  <SelectItem value="all">All Members</SelectItem>
+                  {(members || []).map((member: any) => (
+                    <SelectItem key={member.id} value={member.id}>{member.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <Select value={filterDateMode} onValueChange={(v) => { setFilterDateMode(v as any); setFilterDate(''); setFilterMonth(''); setFromDate(''); setToDate(''); }}>
+              <SelectTrigger className="w-full h-8 text-[10px] rounded-lg bg-card border-border"><SelectValue /></SelectTrigger>
               <SelectContent side="bottom" align="start">
                 <SelectItem value="newest">Newest First</SelectItem>
                 <SelectItem value="oldest">Oldest First</SelectItem>
+                <SelectItem value="alphabetical">Alphabetical (A-Z)</SelectItem>
                 <SelectItem value="date">By Date</SelectItem>
                 <SelectItem value="month">By Month</SelectItem>
+                <SelectItem value="today">Today</SelectItem>
+                <SelectItem value="date_range">Date Range</SelectItem>
               </SelectContent>
             </Select>
+            {filterDateMode === 'date_range' && (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={(fromDate && toDate) ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-8 text-[10px] rounded-lg justify-start gap-1.5"
+                  >
+                    <CalendarDays className="h-4 w-4" />
+                    <span className="truncate">{fromDate && toDate ? `${fromDate} to ${toDate}` : 'Date Range'}</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-[260px] p-3">
+                  <div className="space-y-2">
+                    <Input
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                      className="h-8 text-[10px]"
+                      aria-label="From date"
+                    />
+                    <Input
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                      className="h-8 text-[10px]"
+                      aria-label="To date"
+                    />
+                  </div>
+                </PopoverContent>
+              </Popover>
+            )}
+            {filterDateMode === 'date_range' && fromDate && toDate && !hasValidCustomRange && (
+              <p className="text-[10px] text-muted-foreground">Invalid range: From date should be before To date</p>
+            )}
             {filterDateMode === 'date' && (
               <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
-                className="w-full text-xs bg-card border border-border rounded-lg px-3 py-2 text-foreground outline-none" />
+                className="w-full text-[10px] bg-card border border-border rounded-lg px-2.5 py-1.5 text-foreground outline-none" />
             )}
             {filterDateMode === 'month' && (
               <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)}
-                className="w-full text-xs bg-card border border-border rounded-lg px-3 py-2 text-foreground outline-none" />
+                className="w-full text-[10px] bg-card border border-border rounded-lg px-2.5 py-1.5 text-foreground outline-none" />
             )}
           </motion.div>
         )}
       </div>
 
+      {/* ── Member Zone Tabs ── */}
+      {isMemberRole && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          marginBottom: '14px',
+          padding: '3px',
+          background: 'rgba(0,0,0,0.04)',
+          borderRadius: '12px',
+          border: '1px solid rgba(0,0,0,0.06)',
+          overflowX: 'auto',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+        }}>
+          {[
+            { key: 'all', label: 'All Leads' },
+            { key: 'my_zones', label: 'My Zones' },
+            { key: 'other_zones', label: 'Extra Zones' },
+            { key: 'assigned_by_me', label: 'Assigned by Me' },
+            { key: 'assigned_to_me', label: 'Assigned to Me' },
+            { key: 'mistakes', label: 'Mistakes' },
+          ].map((tab) => {
+            const isActive = filterZone === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setFilterZone(tab.key)}
+                style={{
+                  position: 'relative',
+                  flex: '1 1 0%',
+                  minWidth: 'max-content',
+                  padding: '7px 14px',
+                  borderRadius: '9px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  fontWeight: isActive ? 600 : 500,
+                  letterSpacing: '0.01em',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.2s cubic-bezier(0.4,0,0.2,1)',
+                  background: isActive
+                    ? 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)'
+                    : 'transparent',
+                  color: isActive ? '#ffffff' : '#64748b',
+                  boxShadow: isActive
+                    ? '0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)'
+                    : 'none',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLButtonElement).style.background = 'rgba(0,0,0,0.04)';
+                    (e.currentTarget as HTMLButtonElement).style.color = '#334155';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+                    (e.currentTarget as HTMLButtonElement).style.color = '#64748b';
+                  }
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <MemberDailyReminderPopup />
+
       {/* Bulk actions */}
-      {selectedIds.size > 0 && canManageLeadAssignments && (
+      {!isMistakesTab && selectedIds.size > 0 && canManageLeadAssignments && !isAssignedByMeReadOnly && (
         <motion.div
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
@@ -393,9 +1629,6 @@ const Leads = () => {
             <SelectTrigger className="h-7 w-[140px] text-2xs rounded-lg"><SelectValue placeholder="Change status..." /></SelectTrigger>
             <SelectContent>{pipelineStages.map((s: any) => <SelectItem key={s.key} value={s.key}>{s.label}</SelectItem>)}</SelectContent>
           </Select>
-          <Button variant="destructive" size="sm" className="h-7 text-2xs gap-1 rounded-lg" onClick={handleBulkDelete}>
-            <Trash2 size={10} /> Delete
-          </Button>
           <button onClick={() => setSelectedIds(new Set())} className="text-2xs text-muted-foreground hover:text-foreground ml-auto transition-colors">
             Clear
           </button>
@@ -405,6 +1638,123 @@ const Leads = () => {
       {/* ═══════════════════════════════════════════════════════════ */}
       {/*  LEAD CARDS — NEW UI                                       */}
       {/* ═══════════════════════════════════════════════════════════ */}
+
+      {isMyZoneTab && myZoneUrgentQueue.length === 0 && (
+        <div className="mb-4 rounded-md border border-emerald-400/50 bg-emerald-500/20 px-3 py-2 text-xs font-semibold text-emerald-100">
+          Queue clear - no urgent actions pending
+        </div>
+      )}
+
+      {isMistakesTab && (
+        <div className="mb-4 space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-red-300/40 bg-red-50 p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-red-700">Our Fault</div>
+              <div className="mt-1 text-2xl font-bold text-red-900">{mistakesData.totals.ourFault}</div>
+              <div className="text-[11px] text-red-700">15+ days, not closed</div>
+            </div>
+            <div className="rounded-xl border border-amber-300/40 bg-amber-50 p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">Missed</div>
+              <div className="mt-1 text-2xl font-bold text-amber-900">{mistakesData.totals.missed}</div>
+              <div className="text-[11px] text-amber-700">Move-in date passed</div>
+            </div>
+            <div className="rounded-xl border border-orange-300/40 bg-orange-50 p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-orange-700">Never Called</div>
+              <div className="mt-1 text-2xl font-bold text-orange-900">{mistakesData.totals.neverCalled}</div>
+              <div className="text-[11px] text-orange-700">Zero contact made</div>
+            </div>
+            <div className="rounded-xl border border-slate-300/40 bg-slate-50 p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-700">Total Lost</div>
+              <div className="mt-1 text-2xl font-bold text-slate-900">{mistakesData.totals.totalLost}</div>
+              <div className="text-[11px] text-slate-700">Closed lost deals</div>
+            </div>
+          </div>
+
+          {mistakesData.totals.totalLost > 0 && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <h3 className="text-sm font-semibold text-foreground">WHY WE LOST</h3>
+              <div className="mt-3 space-y-2">
+                {mistakesData.lostReasons.map((item) => {
+                  const width = Math.max(4, Math.round((item.count / mistakesData.totals.totalLost) * 100));
+                  return (
+                    <div key={item.reason} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-foreground">{item.reason}</span>
+                        <span className="font-semibold text-muted-foreground">{item.count}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-secondary">
+                        <div className="h-2 rounded-full bg-slate-500" style={{ width: `${width}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {mistakesData.totals.ourFault > 0 && (
+            <div className="rounded-xl border border-red-200/50 bg-red-50/40 p-4">
+              <h3 className="text-sm font-semibold text-red-800">Our Fault Leads</h3>
+              <div className="mt-3 space-y-2">
+                {mistakesData.ourFaultLeads.map((lead) => {
+                  const addedDays = daysSinceNormalized(lead.createdAt) || 0;
+                  const lastContactDays = daysSinceNormalized(lead.lastOn || lead.lastActivityAt);
+                  const diagnosis = Number(lead.touches || 0) === 0
+                    ? 'Zero calls made - lead abandoned immediately'
+                    : (lastContactDays !== null && lastContactDays >= 30)
+                      ? 'Dormant 30+ days - final attempt or mark lost'
+                      : `${lastContactDays ?? 0}d without follow-up - this is on us`;
+
+                  return (
+                    <div key={`fault-${lead.id}`} className="rounded-lg border border-red-200/60 bg-white px-3 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-semibold text-foreground">{lead.name}</p>
+                          <p className="text-[11px] text-red-700">Added {addedDays}d ago</p>
+                        </div>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setExpandedId(lead.id)}>Open</Button>
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {lead.preferredLocation || '-'} | {lead.budget || '-'} | Stage: {lead.status} | Last contact: {lastContactDays === null ? 'Never' : `${lastContactDays}d ago`} | Move-in: {lead.moveInDate || '-'}
+                      </p>
+                      <p className="mt-1 text-[11px] text-red-800">{diagnosis}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {mistakesData.totals.missed > 0 && (
+            <div className="rounded-xl border border-amber-200/50 bg-amber-50/40 p-4">
+              <h3 className="text-sm font-semibold text-amber-800">Missed Move-in Leads</h3>
+              <div className="mt-3 space-y-2">
+                {mistakesData.missedLeads.map((lead) => {
+                  const daysPast = Math.abs(daysUntilNormalized(lead.moveInDate) || 0);
+                  return (
+                    <div key={`missed-${lead.id}`} className="rounded-lg border border-amber-200/60 bg-white px-3 py-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-semibold text-foreground">{lead.name}</p>
+                          <p className="text-[11px] text-amber-700">Move-in was {daysPast}d ago</p>
+                        </div>
+                        <Button size="sm" variant="outline" className="h-6 text-[10px]" onClick={() => setExpandedId(lead.id)}>Open</Button>
+                      </div>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {lead.preferredLocation || '-'} | {lead.budget || '-'} | Stage: {lead.status} | Touches: {Number(lead.touches || 0)}
+                      </p>
+                      <p className="mt-1 text-[11px] text-amber-800">Either they found a PG elsewhere, or we failed to close. Mark lost with correct reason.</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!isMistakesTab && (
+      <>
       <style>{`
         :root {
           --lc-bg0: #ffffff; --lc-bg1: #f8f9fc; --lc-bg2: #f1f3f8; --lc-bg3: #e8ebf2;
@@ -428,13 +1778,121 @@ const Leads = () => {
           .lc-avatar { display: none !important; }
           .lc-card { padding: 8px 10px !important; }
           .lc-expand-grid { grid-template-columns: 1fr 1fr !important; }
+          .lc-card .lc-name { font-size: 11px !important; }
+          .lc-card .lc-phone { font-size: 9px !important; }
+          .lc-card .lc-meta { font-size: 8.5px !important; }
+          .lc-card .lc-chip { font-size: 8px !important; padding: 1px 5px !important; }
+          .lc-card .lc-stage { font-size: 8px !important; padding: 1px 6px !important; }
+          .lc-card .lc-progress-pct { font-size: 8px !important; min-width: 16px !important; }
+          .lc-card .lc-actions-row { gap: 3px !important; }
+          .lc-card .lc-actions-row button,
+          .lc-card .lc-actions-row a { padding: 4px !important; }
+          .lc-card .lc-timestamp { font-size: 8px !important; }
         }
       `}</style>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {filtered.map(lead => {
+        {activeDisplayRows.map((row, rowIndex) => {
+          if (row.kind === 'header') {
+            const cfg = activeBandConfig[row.band];
+            const count = activeGroupedBands[row.band]?.length || 0;
+            return (
+              <div
+                key={`band-${row.band}`}
+                data-section-focus={isMyZoneTab ? `myzone:${row.band}` : `current:${row.band}`}
+                className="flex w-full items-stretch overflow-hidden rounded-xl"
+                style={{ background: cfg.color, color: '#fff' }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isMyZoneTab) {
+                      if (row.band === 'urgent') {
+                        setMyZoneUrgentOpen((prev) => !prev);
+                      } else {
+                        const bucket = row.band as MyZoneBucketKey;
+                        setMyZoneBucketOpen((prev) => ({ ...prev, [bucket]: !prev[bucket] }));
+                      }
+                    } else {
+                      setBandOpen((prev) => ({ ...prev, [row.band]: !prev[row.band] }));
+                    }
+                  }}
+                  className="flex min-w-0 flex-1 items-center justify-between px-4 py-3 text-left"
+                >
+                  <div className="flex min-w-0 flex-col gap-0.5 text-left">
+                    <div className="text-xs font-bold tracking-wide">{cfg.label}</div>
+                    <div className="text-[11px] text-white/80">{cfg.subtitle}</div>
+                  </div>
+                  <div className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold">{count}</div>
+                </button>
+              </div>
+            );
+          }
+
+          if (row.kind === 'footer') {
+            const sectionWindow = isMyZoneTab
+              ? (row.band === 'urgent' ? myZoneUrgentWindow : myZoneBandWindows[row.band])
+              : currentBandWindows[row.band];
+            const totalPages = sectionWindow?.totalPages || 1;
+            const currentPage = sectionWindow?.page || 0;
+            const canPrev = currentPage > 0;
+            const canNext = currentPage < totalPages - 1;
+            return (
+              <div
+                key={`band-footer-${row.band}`}
+                className="flex items-center justify-end gap-2 rounded-xl border border-dashed border-border bg-muted/35 px-3 py-2"
+              >
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  {currentPage + 1}/{totalPages}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    aria-label={`Previous ${row.band}`}
+                    disabled={!canPrev}
+                    onClick={() => {
+                      if (!canPrev) return;
+                      setScrollTarget(isMyZoneTab ? `myzone:${row.band}` : `current:${row.band}`);
+                      setScrollToken((value) => value + 1);
+                      if (isMyZoneTab) {
+                        setSectionPage('myzone', row.band, currentPage - 1);
+                      } else {
+                        setSectionPage('current', row.band, currentPage - 1);
+                      }
+                    }}
+                    className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Next ${row.band}`}
+                    disabled={!canNext}
+                    onClick={() => {
+                      if (!canNext) return;
+                      setScrollTarget(isMyZoneTab ? `myzone:${row.band}` : `current:${row.band}`);
+                      setScrollToken((value) => value + 1);
+                      if (isMyZoneTab) {
+                        setSectionPage('myzone', row.band, currentPage + 1);
+                      } else {
+                        setSectionPage('current', row.band, currentPage + 1);
+                      }
+                    }}
+                    className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-background text-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronRight size={12} />
+                  </button>
+                </div>
+              </div>
+            );
+          }
+
+          const lead = row.lead;
           const m = mapLeadMeta(lead);
           const isExpanded = expandedId === lead.id;
+          const isDuplicateLead = !!lead.isDuplicate;
+          const autoTags = getAutoTags(lead);
+          const hasUrgentTags = autoTags.some((tag) => tag.urgent);
           const sBadge = statusBadgeConfig[lead.status] || statusBadgeConfig.new;
           const stageLabel = pipelineStages.find((s: any) => s.key === lead.status)?.label || lead.status;
           const hue = lead.name ? lead.name.charCodeAt(0) * 7 % 360 : 200;
@@ -442,35 +1900,53 @@ const Leads = () => {
           const fieldsMissing = computeFieldsMissing(lead);
           const progressColor = getProgressColor(progress);
           const qualityBadge = getQualityBadgeColor(m.quality || '');
-          const createdDate = new Date(lead.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+          const createdAtStamp = new Date(lead.createdAt).toLocaleString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+          });
 
           // Budget display for collapsed card
           const budgetDisplay = m.budgetRanges?.length > 0
             ? m.budgetRanges.map((r: any) => r.display).join(', ')
             : lead.budget || '';
-
           if (!isExpanded) {
             // ─── COLLAPSED CARD ───
             return (
               <div
-                key={lead.id}
+                key={`${row.band}-${lead.id}-${rowIndex}`}
                 className="lc-card"
-                onClick={() => setExpandedId(lead.id)}
+                onClick={() => {
+                  setExpandedId(lead.id);
+                }}
                 style={{
-                  background: 'var(--lc-bg1)',
-                  border: '1px solid var(--lc-line)',
+                  background: isDuplicateLead ? 'rgba(251,113,133,0.045)' : 'var(--lc-bg1)',
+                  border: hasUrgentTags
+                    ? '1px solid #7f1d1d'
+                    : isDuplicateLead
+                      ? '1px solid rgba(251,113,133,0.28)'
+                      : '1px solid var(--lc-line)',
+                  borderLeft: hasUrgentTags ? '3px solid #dc2626' : `3px solid ${sBadge.color}`,
                   borderRadius: 12,
                   padding: '12px 14px',
                   cursor: 'pointer',
                   transition: 'all 0.15s ease',
                   position: 'relative',
                 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--lc-line2)'; (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--lc-line)'; (e.currentTarget as HTMLElement).style.boxShadow = 'none'; }}
+                onMouseEnter={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = isDuplicateLead ? 'rgba(251,113,133,0.45)' : 'var(--lc-line2)';
+                  (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
+                }}
+                onMouseLeave={e => {
+                  (e.currentTarget as HTMLElement).style.borderColor = isDuplicateLead ? 'rgba(251,113,133,0.28)' : 'var(--lc-line)';
+                  (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                }}
               >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                   {/* Checkbox */}
-                  {canManageLeadAssignments && (
+                  {canManageLeadAssignments && !isAssignedByMeReadOnly && (
                     <div onClick={e => e.stopPropagation()} style={{ paddingTop: 6, flexShrink: 0 }}>
                       <Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} />
                     </div>
@@ -478,11 +1954,11 @@ const Leads = () => {
 
                   {/* Avatar */}
                   <div className="lc-avatar" style={{
-                    width: 44, height: 44, borderRadius: '50%', flexShrink: 0,
+                    width: 38, height: 38, borderRadius: '50%', flexShrink: 0,
                     background: `hsl(${hue},30%,92%)`,
                     border: `2px solid hsl(${hue},34%,84%)`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 16, fontWeight: 700, color: `hsl(${hue},38%,42%)`,
+                    fontSize: 14, fontWeight: 700, color: `hsl(${hue},38%,42%)`,
                     fontFamily: 'var(--lc-sans)',
                   }}>
                     {(lead.name || '?')[0]?.toUpperCase()}
@@ -492,19 +1968,19 @@ const Leads = () => {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {/* Row 1: Name + Badges */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px 8px', flexWrap: 'wrap', paddingBottom: 4 }}>
-                      <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--lc-hi)', margin: 0, fontFamily: 'var(--lc-sans)', paddingRight: 2 }}>{lead.name}</h3>
+                      <h3 className="lc-name" style={{ fontSize: 13, fontWeight: 700, color: 'var(--lc-hi)', margin: 0, fontFamily: 'var(--lc-sans)', paddingRight: 2 }}>{lead.name}</h3>
                       
                       {m.need && (
                         <>
                           <span style={{ color: 'var(--lc-line2)' }}>|</span>
-                          <span style={{ fontSize: 10.5, color: 'var(--lc-mid)', fontWeight: 600 }}>{m.need}</span>
+                          <span className="lc-meta" style={{ fontSize: 10.5, color: 'var(--lc-mid)', fontWeight: 600 }}>{m.need}</span>
                         </>
                       )}
 
                       {m.quality && (
                         <>
                           <span style={{ color: 'var(--lc-line2)' }}>|</span>
-                          <span style={{
+                          <span className="lc-chip" style={{
                             padding: '1px 8px', borderRadius: 10, fontSize: 9.5, fontWeight: 600,
                             background: qualityBadge.bg, color: qualityBadge.color,
                           }}>
@@ -517,7 +1993,7 @@ const Leads = () => {
                       {m.zones.map((z: string) => <ZonePill key={z} zoneName={z} xs />)}
 
                       <span style={{ color: 'var(--lc-line2)' }}>|</span>
-                      <span style={{
+                      <span className="lc-stage" style={{
                         padding: '1px 8px', borderRadius: 10, fontSize: 9.5, fontWeight: 600,
                         background: sBadge.bg, color: sBadge.color, border: `1px solid ${sBadge.border}`,
                       }}>
@@ -527,12 +2003,12 @@ const Leads = () => {
 
                     {/* Row 2: Phone + Budget + Extended Info */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px 8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 11.5, color: 'var(--lc-mid)', fontFamily: 'var(--lc-mono)', fontWeight: 600 }}>{lead.phone}</span>
+                      <span className="lc-phone" style={{ fontSize: 11, color: 'var(--lc-mid)', fontFamily: 'var(--lc-mono)', fontWeight: 600 }}>{lead.phone}</span>
 
                       {budgetDisplay && (
                         <>
                           <span style={{ color: 'var(--lc-line2)' }}>|</span>
-                          <span style={{
+                          <span className="lc-chip" style={{
                             fontSize: 10, padding: '1px 7px',
                             background: 'var(--lc-bg2)', borderRadius: 4, color: 'var(--lc-mid)',
                             fontFamily: 'var(--lc-mono)', fontWeight: 500,
@@ -545,7 +2021,7 @@ const Leads = () => {
                       {m.inBLR !== null && (
                         <>
                           <span style={{ color: 'var(--lc-line2)' }}>|</span>
-                          <span style={{ fontSize: 10, color: m.inBLR ? 'var(--lc-mid)' : 'var(--lc-dim)', fontWeight: 500 }}>
+                          <span className="lc-meta" style={{ fontSize: 10, color: m.inBLR ? 'var(--lc-mid)' : 'var(--lc-dim)', fontWeight: 500 }}>
                             {m.inBLR ? 'IN BLR' : 'NOT IN BLR'}
                           </span>
                         </>
@@ -554,7 +2030,7 @@ const Leads = () => {
                       {lead.moveInDate && (
                         <>
                           <span style={{ color: 'var(--lc-line2)' }}>|</span>
-                          <span style={{ fontSize: 10, color: 'var(--lc-mid)', fontWeight: 500 }}>
+                          <span className="lc-meta" style={{ fontSize: 10, color: 'var(--lc-mid)', fontWeight: 500 }}>
                             {lead.moveInDate}
                           </span>
                         </>
@@ -565,7 +2041,7 @@ const Leads = () => {
                           <span style={{ color: 'var(--lc-line2)' }}>|</span>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                             <MapPin size={9} color="var(--lc-dim)" />
-                            <span style={{ fontSize: 10, color: 'var(--lc-dim)', fontWeight: 500 }}>{lead.preferredLocation}</span>
+                            <span className="lc-meta" style={{ fontSize: 10, color: 'var(--lc-dim)', fontWeight: 500 }}>{lead.preferredLocation}</span>
                           </div>
                         </>
                       )}
@@ -584,50 +2060,107 @@ const Leads = () => {
                         </>
                       )}
                     </div>
+
+                    {autoTags.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                        {autoTags.map((tag, idx) => (
+                          <span
+                            key={`${tag.label}-${idx}`}
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              padding: '1px 7px',
+                              borderRadius: 999,
+                              color: tag.urgent ? '#7f1d1d' : '#111827',
+                              background: `${tag.color}33`,
+                              border: `1px solid ${tag.color}`,
+                            }}
+                          >
+                            {tag.label}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Quick actions on collapsed */}
-                  <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0, paddingTop: 2 }}>
-                    
-                    {/* Small Progress Bar */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, width: '100%' }}>
-                      <div style={{ flex: 1, height: 4, background: 'var(--lc-bg3)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0, paddingTop: 2, alignItems: 'flex-end' }}>
+
+                    {/* Keep progress bar on the top row */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, width: '100%', flexWrap: 'wrap' }}>
+                      <div style={{ width: 40, height: 4, background: 'var(--lc-bg3)', borderRadius: 2, overflow: 'hidden' }}>
                         <div style={{ height: '100%', width: `${progress}%`, background: progressColor, borderRadius: 2, transition: 'width 0.3s ease' }} />
                       </div>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: progressColor, fontFamily: 'var(--lc-mono)', textAlign: 'right', minWidth: 20 }}>{progress}%</span>
-                    </div>
-
-                    {/* Action icons row */}
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setExpandedId(lead.id); }} 
-                        style={{ padding: 5, borderRadius: 6, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex', cursor: 'pointer' }} 
-                        title="Expand"
-                      >
-                        <ChevronDown size={12} color="var(--lc-mid)" />
-                      </button>
-                      <a href={`tel:${lead.phone}`} style={{ padding: 5, borderRadius: 6, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex' }} title="Call">
-                        <PhoneCall size={12} color="var(--lc-mid)" />
+                      <span className="lc-progress-pct" style={{ fontSize: 8.5, fontWeight: 700, color: progressColor, fontFamily: 'var(--lc-mono)', textAlign: 'right', minWidth: 18 }}>{progress}%</span>
+                      {!isAssignedByMeReadOnly && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openScheduleFromLead(lead, m.zone || ''); }}
+                          className="inline-flex items-center gap-1 rounded-md border border-[var(--lc-line)] bg-[var(--lc-bg2)] px-1.5 py-0.5 text-[8.5px] font-semibold text-[var(--lc-mid)] hover:bg-[var(--lc-bg3)]"
+                          title="Tour"
+                        >
+                          <CalendarDays size={9} />
+                          Tour
+                        </button>
+                      )}
+                      <a href={`tel:${lead.phone}`} style={{ padding: 4, borderRadius: 5, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex' }} title="Call">
+                        <PhoneCall size={10} color="var(--lc-mid)" />
                       </a>
                       <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedId(lead.id);
+                        }} 
+                        style={{ padding: 4, borderRadius: 5, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex', cursor: 'pointer' }} 
+                        title="Expand"
+                      >
+                        <ChevronDown size={10} color="var(--lc-mid)" />
+                      </button>
+                    </div>
+
+                    {/* Lower row: WhatsApp, more options, and timestamp */}
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
+                      <span className="lc-timestamp" style={{ fontSize: 8.5, fontWeight: 600, color: 'var(--lc-dim)', fontFamily: 'var(--lc-mono)', whiteSpace: 'nowrap' }}>
+                        {createdAtStamp}
+                      </span>
+                      <button 
                         onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(`https://wa.me/${lead.phone.replace(/[^0-9]/g, '')}`); toast.success('WhatsApp link copied!'); }}
-                        style={{ padding: 5, borderRadius: 6, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', display: 'flex', cursor: 'pointer' }} 
+                        style={{ padding: 4, borderRadius: 5, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', display: 'flex', cursor: 'pointer' }} 
                         title="Copy WhatsApp API"
                       >
-                        <MessageCircle size={12} color="#22c55e" />
+                        <MessageCircle size={10} color="#22c55e" />
                       </button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button style={{ padding: 5, borderRadius: 6, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex', cursor: 'pointer' }} title="More options">
-                            <MoreVertical size={12} color="var(--lc-mid)" />
+                          <button style={{ padding: 4, borderRadius: 5, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex', cursor: 'pointer' }} title="More options">
+                            <MoreVertical size={10} color="var(--lc-mid)" />
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => { setSelectedLeadForEdit(lead); setEditDialogOpen(true); }}>
-                            Edit Lead
+                          {!isAssignedByMeReadOnly && (
+                            <DropdownMenuItem onClick={() => openLeadEditInNewTab(lead)}>
+                              Edit Lead
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            className="font-mono text-[10px] text-muted-foreground cursor-pointer"
+                            onSelect={() => {
+                              navigator.clipboard.writeText(`L-${lead.id.slice(-6).toUpperCase()}`);
+                              toast.success('Lead ID copied!');
+                            }}
+                          >
+                            L-{lead.id.slice(-6).toUpperCase()}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                    </div>
+
+                    <div style={{ width: '100%', fontSize: 8.5, lineHeight: 1.2, color: 'var(--lc-dim)', fontFamily: 'var(--lc-mono)', textAlign: 'right' }}>
+                      Added by: {lead.creator?.name || '-'}
+                    </div>
+
+                    <div style={{ width: '100%', fontSize: 8.5, lineHeight: 1.2, color: 'var(--lc-dim)', fontFamily: 'var(--lc-mono)', textAlign: 'right' }}>
+                      Assigned to: {lead.members?.name || '-'}
                     </div>
                   </div>
                 </div>
@@ -654,16 +2187,22 @@ const Leads = () => {
             acc: 'var(--lc-acc)',
             accentBg: 'var(--lc-accent-bg)',
           };
+          const isLoggingActivity = activityLeadId === lead.id;
 
           return (
             <motion.div
-              key={lead.id}
+              key={`${row.band}-${lead.id}-${rowIndex}`}
               initial={{ opacity: 0.9 }}
               animate={{ opacity: 1 }}
               style={{
-                background: 'var(--lc-bg1)',
+                background: isDuplicateLead ? 'rgba(251,113,133,0.055)' : 'var(--lc-bg1)',
                 borderRadius: 14,
-                border: `2px solid var(--lc-acc)`,
+                border: hasUrgentTags
+                  ? '2px solid #7f1d1d'
+                  : isDuplicateLead
+                    ? '2px solid rgba(251,113,133,0.4)'
+                    : `2px solid var(--lc-acc)`,
+                borderLeft: hasUrgentTags ? '3px solid #dc2626' : `3px solid ${sBadge.color}`,
                 overflow: 'hidden',
               }}
             >
@@ -672,7 +2211,7 @@ const Leads = () => {
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: 1 }}>
                     {/* Checkbox */}
-                    {canManageLeadAssignments && (
+                    {canManageLeadAssignments && !isAssignedByMeReadOnly && (
                       <div onClick={e => e.stopPropagation()} style={{ paddingTop: 6, flexShrink: 0 }}>
                         <Checkbox checked={selectedIds.has(lead.id)} onCheckedChange={() => toggleSelect(lead.id)} />
                       </div>
@@ -693,7 +2232,7 @@ const Leads = () => {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {/* Row 1: Name + Badges */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px 8px', flexWrap: 'wrap', paddingBottom: 4 }}>
-                        <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--lc-hi)', margin: 0, fontFamily: 'var(--lc-sans)', paddingRight: 2 }}>{lead.name}</h3>
+                        <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--lc-hi)', margin: 0, fontFamily: 'var(--lc-sans)', paddingRight: 2 }}>{lead.name}</h3>
                         
                         {m.need && (
                           <>
@@ -728,7 +2267,7 @@ const Leads = () => {
 
                       {/* Row 2: Phone + Budget + Extended Info */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px 8px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11.5, color: 'var(--lc-mid)', fontFamily: 'var(--lc-mono)', fontWeight: 600 }}>{lead.phone}</span>
+                        <span style={{ fontSize: 11, color: 'var(--lc-mid)', fontFamily: 'var(--lc-mono)', fontWeight: 600 }}>{lead.phone}</span>
 
                         {budgetDisplay && (
                           <>
@@ -785,61 +2324,142 @@ const Leads = () => {
                           </>
                         )}
                       </div>
+
+                      {autoTags.length > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                          {autoTags.map((tag, idx) => (
+                            <span
+                              key={`${tag.label}-${idx}`}
+                              style={{
+                                fontSize: 9,
+                                fontWeight: 700,
+                                padding: '1px 7px',
+                                borderRadius: 999,
+                                color: tag.urgent ? '#7f1d1d' : '#111827',
+                                background: `${tag.color}33`,
+                                border: `1px solid ${tag.color}`,
+                              }}
+                            >
+                              {tag.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Right side — ID + action icons */}
-                  <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 5, flexShrink: 0, paddingTop: 2 }}>
-                    <span style={{ fontSize: 9, color: 'var(--lc-dim)', fontFamily: 'var(--lc-mono)' }}>L-{lead.id.slice(-6).toUpperCase()}</span>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button 
-                        onClick={(e) => { e.stopPropagation(); setExpandedId(''); }} 
-                        style={{ padding: 5, borderRadius: 6, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex', cursor: 'pointer' }} 
+                  {/* Right side — same compact layout as collapsed */}
+                  <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, paddingTop: 2, alignItems: 'flex-end' }}>
+                    <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4, flexWrap: 'wrap' }}>
+                      <div style={{ width: 40, height: 4, background: 'var(--lc-bg3)', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${progress}%`, background: progressColor, borderRadius: 2, transition: 'width 0.3s ease' }} />
+                      </div>
+                      <span className="lc-progress-pct" style={{ fontSize: 8.5, fontWeight: 700, color: progressColor, fontFamily: 'var(--lc-mono)', textAlign: 'right', minWidth: 18 }}>{progress}%</span>
+                      {!isAssignedByMeReadOnly && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); openScheduleFromLead(lead, m.zone || ''); }}
+                          className="inline-flex items-center gap-1 rounded-md border border-[var(--lc-line)] bg-[var(--lc-bg2)] px-1.5 py-0.5 text-[8.5px] font-semibold text-[var(--lc-mid)] hover:bg-[var(--lc-bg3)]"
+                          title="Tour"
+                        >
+                          <CalendarDays size={9} />
+                          Tour
+                        </button>
+                      )}
+                      <a href={`tel:${lead.phone}`} style={{ padding: 4, borderRadius: 5, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex' }} title="Call">
+                        <PhoneCall size={10} color="var(--lc-mid)" />
+                      </a>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setExpandedId(''); }}
+                        style={{ padding: 4, borderRadius: 5, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex', cursor: 'pointer' }} 
                         title="Collapse"
                       >
-                        <ChevronUp size={12} color="var(--lc-mid)" />
+                        <ChevronUp size={10} color="var(--lc-mid)" />
                       </button>
-                      <a href={`tel:${lead.phone}`} style={{ padding: 5, borderRadius: 6, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex' }} title="Call">
-                        <PhoneCall size={12} color="var(--lc-mid)" />
-                      </a>
-                      <button 
+                    </div>
+
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
+                      <span className="lc-timestamp" style={{ fontSize: 8.5, fontWeight: 600, color: 'var(--lc-dim)', fontFamily: 'var(--lc-mono)', whiteSpace: 'nowrap' }}>
+                        {createdAtStamp}
+                      </span>
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           navigator.clipboard.writeText(`https://wa.me/${lead.phone.replace(/[^0-9]/g, '')}`);
                           toast.success('WhatsApp link copied!');
                         }}
-                        style={{ padding: 5, borderRadius: 6, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', display: 'flex', cursor: 'pointer' }} 
+                        style={{ padding: 4, borderRadius: 5, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', display: 'flex', cursor: 'pointer' }} 
                         title="Copy WhatsApp API"
                       >
-                        <MessageCircle size={12} color="#22c55e" />
+                        <MessageCircle size={10} color="#22c55e" />
                       </button>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <button style={{ padding: 5, borderRadius: 6, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex', cursor: 'pointer' }} title="More options">
-                            <MoreVertical size={12} color="var(--lc-mid)" />
+                          <button style={{ padding: 4, borderRadius: 5, background: 'var(--lc-bg2)', border: '1px solid var(--lc-line)', display: 'flex', cursor: 'pointer' }} title="More options">
+                            <MoreVertical size={10} color="var(--lc-mid)" />
                           </button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => { setSelectedLeadForEdit(lead); setEditDialogOpen(true); }}>
-                            Edit Lead
+                          {!isAssignedByMeReadOnly && (
+                            <DropdownMenuItem onClick={() => openLeadEditInNewTab(lead)}>
+                              Edit Lead
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem
+                            className="font-mono text-[10px] text-muted-foreground cursor-pointer"
+                            onSelect={() => {
+                              navigator.clipboard.writeText(`L-${lead.id.slice(-6).toUpperCase()}`);
+                              toast.success('Lead ID copied!');
+                            }}
+                          >
+                            L-{lead.id.slice(-6).toUpperCase()}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                    </div>
+
+                    <div style={{ width: '100%', fontSize: 8.5, lineHeight: 1.2, color: 'var(--lc-dim)', fontFamily: 'var(--lc-mono)', textAlign: 'right' }}>
+                      Added by: {lead.creator?.name || '-'}
+                    </div>
+
+                    <div style={{ width: '100%', fontSize: 8.5, lineHeight: 1.2, color: 'var(--lc-dim)', fontFamily: 'var(--lc-mono)', textAlign: 'right' }}>
+                      Assigned to: {lead.members?.name || '-'}
                     </div>
                   </div>
                 </div>
 
                 {/* ─── Pipeline Stages Stepper ─── */}
                 <div style={{ marginTop: 14, paddingBottom: 4 }}>
-                  <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', padding: '0 4px' }}>
+                  <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', padding: '0 4px' }} onClick={(e) => e.stopPropagation()}>
                     {pipelineStages.map((stage: any, i: number) => {
                       const isCompleted = i < stageIdx;
                       const isCurrent = i === stageIdx;
                       const showLine = i < pipelineStages.length - 1;
                       const lineCompleted = i < stageIdx;
+                      const isStageUpdating = updatingStageLeadId === lead.id;
+                      const isTargetStageUpdating = updatingStageTarget?.leadId === lead.id && updatingStageTarget.stageKey === stage.key;
 
                       return (
-                        <div key={stage.key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', flex: 1, minWidth: 0 }}>
+                        <button
+                          key={stage.key}
+                          type="button"
+                          onClick={() => handleInlineStageChange(lead, stage.key, stage.label)}
+                          disabled={isAssignedByMeReadOnly || isStageUpdating || isCurrent}
+                          title={isCurrent ? 'Current stage' : `Move to ${stage.label}`}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            position: 'relative',
+                            flex: 1,
+                            minWidth: 0,
+                            border: 'none',
+                            background: 'transparent',
+                            padding: 0,
+                            cursor: isAssignedByMeReadOnly || isStageUpdating || isCurrent ? 'not-allowed' : 'pointer',
+                            opacity: isStageUpdating && !isCurrent ? 0.55 : 1,
+                          }}
+                        >
                           {/* Connecting Line */}
                           {showLine && (
                             <div style={{ position: 'absolute', top: 11, left: '50%', right: '-50%', height: 2, background: lineCompleted ? D.acc : D.line2, zIndex: 0 }} />
@@ -854,7 +2474,9 @@ const Leads = () => {
                             color: isCompleted ? '#fff' : isCurrent ? D.acc : D.mid,
                             transition: 'all 0.2s ease'
                           }}>
-                            {isCompleted ? (
+                            {isTargetStageUpdating ? (
+                              <Loader2 size={11} strokeWidth={2.5} className="animate-spin" />
+                            ) : isCompleted ? (
                               <Check size={12} strokeWidth={3} />
                             ) : isCurrent ? (
                               <div style={{ width: 8, height: 8, borderRadius: 4, background: D.acc }} />
@@ -869,16 +2491,17 @@ const Leads = () => {
                           }}>
                             {stage.label}
                           </div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
                 </div>
+
               </div>
 
               {/* ─── Details Grid (Dynamic Dense) ─── */}
               <div className="lc-expand-grid" style={{
-                display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+                display: isLoggingActivity ? 'none' : 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
                 gap: 1, background: D.line, margin: '6px 16px 0', borderRadius: 10, overflow: 'hidden',
                 border: `1px solid ${D.line}`
               }}>
@@ -964,7 +2587,7 @@ const Leads = () => {
               </div>
 
               {/* ─── Notes & Actions Section ─── */}
-              <div style={{ padding: '12px 16px', background: D.bgRow, borderTop: `1px solid ${D.line}` }}>
+              <div style={{ display: isLoggingActivity ? 'none' : 'block', padding: '12px 16px', background: D.bgRow, borderTop: `1px solid ${D.line}` }}>
                 {/* Notes row */}
                 {lead.notes && (
                   <div style={{ marginBottom: 10, padding: '8px 10px', background: D.bg1, borderRadius: 8, border: `1px solid ${D.line}` }}>
@@ -986,43 +2609,249 @@ const Leads = () => {
                 {/* Geo Intelligence */}
                 <GeoIntelPanel lead={{ location: lead.preferredLocation, rawText: '', areas: m.areas }} />
 
+                {/* Activity Log */}
+                <div style={{ marginTop: 10, padding: '10px', borderRadius: 8, border: `1px solid ${D.line}`, background: D.bg1 }}>
+                  <div style={{ fontSize: 9, color: D.dim, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
+                    Activity Log
+                  </div>
 
+                  {(() => {
+                    const raw = Array.isArray((lead as any).activity) ? ([...(lead as any).activity] as any[]) : [];
+                    raw.sort((a: any, b: any) => new Date(b.on).getTime() - new Date(a.on).getTime());
+                    const showAll = expandedActivityIds.has(lead.id);
+                    const visible = showAll ? raw : raw.slice(0, 3);
+
+                    return (
+                      <>
+                        {visible.length === 0 && <div style={{ fontSize: 11, color: D.dim }}>No activity logged yet.</div>}
+                        {visible.map((entry: any, idx: number) => (
+                          <div
+                            key={entry.id || idx}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'flex-start',
+                              gap: 8,
+                              paddingBottom: idx === visible.length - 1 ? 0 : 8,
+                              marginBottom: idx === visible.length - 1 ? 0 : 8,
+                              borderBottom: idx === visible.length - 1 ? 'none' : `1px dashed ${D.line}`,
+                            }}
+                          >
+                            <div style={{ fontSize: 14, lineHeight: '16px' }}>{actIcon(entry.type)}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 11, color: D.text }}>{entry.note || '-'}</div>
+                              <div style={{ fontSize: 10, color: D.dim, marginTop: 2 }}>
+                                {formatActivityDate(entry.on)} · {entry.by || '-'}
+                              </div>
+                            </div>
+                            <div style={{ width: 7, height: 7, borderRadius: 999, background: actColor(entry.type), marginTop: 5 }} />
+                          </div>
+                        ))}
+
+                        {raw.length > 3 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedActivityIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(lead.id)) next.delete(lead.id);
+                                else next.add(lead.id);
+                                return next;
+                              });
+                            }}
+                            style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: '#2563eb', background: 'transparent', border: 'none', padding: 0 }}
+                          >
+                            {showAll ? 'Show less' : `+ ${raw.length - 3} more entries`}
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+
+                <div style={{ marginTop: 12 }} onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => setActivityLeadId(lead.id)}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-accent-foreground shadow-sm hover:opacity-95"
+                  >
+                    + Log Activity
+                  </button>
+                </div>
+
+              </div>
+
+              <div style={{ display: isLoggingActivity ? 'block' : 'none', margin: '6px 16px 12px' }} onClick={(e) => e.stopPropagation()}>
+                <LogActivitySheet
+                  open={activityLeadId === lead.id}
+                  onOpenChange={(nextOpen) => {
+                    if (!nextOpen) setActivityLeadId(null);
+                  }}
+                  lead={lead}
+                  pipelineStages={pipelineStages.map((stage: any) => ({ key: String(stage.key), label: String(stage.label) }))}
+                  authUser={user ? { id: String(user.id || ''), role: String(user.role || ''), fullName: user.fullName } : null}
+                  onSaved={() => setActivityLeadId(null)}
+                />
               </div>
             </motion.div>
           );
         })}
       </div>
+      </>
+      )}
 
-      {filtered.length === 0 && (
+      {!isMistakesTab && filtered.length === 0 && (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--lc-dim)' }}>
           <div style={{ fontSize: 48, opacity: 0.35, marginBottom: 12 }}>📋</div>
           <div style={{ fontSize: 14 }}>No leads match the current filters</div>
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-2xs text-muted-foreground">
-            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, totalLeads)} of {totalLeads}
-          </p>
-          <div className="flex gap-1.5">
-            <Button variant="outline" size="sm" className="h-7 text-2xs rounded-lg" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
-              Previous
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 text-2xs rounded-lg" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+      <button
+        type="button"
+        aria-label="Add lead"
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-accent text-accent-foreground shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-transform disabled:cursor-not-allowed disabled:opacity-60"
+        onClick={openLeadIntakeInNewTab}
+        disabled={!canAddLead}
+        title={!canAddLead ? 'Only Super Admins, managers, admins, and members can add leads' : 'Open Lead Intake in a new tab'}
+      >
+        <Plus size={24} strokeWidth={2.5} />
+      </button>
 
-      {/* Edit Lead Dialog */}
-      <EditLeadDialog
-        lead={selectedLeadForEdit}
-        open={editDialogOpen}
-        onOpenChange={setEditDialogOpen}
-      />
+      {/* Schedule Tour Dialog */}
+      <Dialog
+        open={scheduleOpen}
+        onOpenChange={(nextOpen) => {
+          setScheduleOpen(nextOpen);
+          if (!nextOpen) setExistingTourInfo(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Schedule Tour</DialogTitle>
+            <DialogDescription>
+              {existingTourInfo
+                ? 'A tour is already scheduled for this lead.'
+                : 'Create a tour assignment without leaving Leads.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {existingTourInfo ? (
+            <div className="space-y-2 rounded-lg border border-border bg-secondary/25 p-3">
+              <p className="text-xs"><span className="font-semibold">Lead:</span> {existingTourInfo.leadName}</p>
+              <p className="text-xs"><span className="font-semibold">Property:</span> {existingTourInfo.propertyName}</p>
+              <p className="text-xs"><span className="font-semibold">Assigned To:</span> {existingTourInfo.assignedTo}</p>
+              <p className="text-xs"><span className="font-semibold">Tour Time:</span> {existingTourInfo.tourTime}</p>
+              <p className="text-xs"><span className="font-semibold">Tour Mode:</span> {existingTourInfo.tourMode}</p>
+              {existingTourInfo.remarks ? (
+                <p className="text-xs"><span className="font-semibold">Remarks:</span> {existingTourInfo.remarks}</p>
+              ) : null}
+            </div>
+          ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Lead</Label>
+              <Input value={scheduleLeadName} readOnly className="h-8 text-xs bg-muted/40" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Phone Number</Label>
+              <Input
+                value={schedulePhone}
+                onChange={(e) => setSchedulePhone(e.target.value)}
+                placeholder="Enter phone number"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Property</Label>
+              <Input
+                value={schedulePropertyName}
+                onChange={(e) => setSchedulePropertyName(e.target.value)}
+                placeholder="Type property name"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Zone</Label>
+              <select
+                value={scheduleZoneId}
+                onChange={(e) => setScheduleZoneId(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+              >
+                {(officeZones || []).map((zone: any) => (
+                  <option key={String(zone._id || zone.id)} value={String(zone._id || zone.id)}>{String(zone.name || '')}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Assign To (TCM)</Label>
+              <div className="relative">
+                <Input
+                  value={scheduleAssignedSearch}
+                  onChange={(e) => handleAssignedSearchChange(e.target.value)}
+                  onFocus={() => setShowAssignedOptions(true)}
+                  onBlur={() => setTimeout(() => setShowAssignedOptions(false), 120)}
+                  placeholder="Type member name..."
+                  className="h-8 text-xs"
+                />
+                {showAssignedOptions && filteredMemberOptions.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-44 overflow-auto rounded-md border border-border bg-popover p-1 shadow-md">
+                    {filteredMemberOptions.map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        className="w-full rounded-sm px-2 py-1.5 text-left text-xs text-popover-foreground hover:bg-accent/20"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleAssignedSelect(member)}
+                      >
+                        {member.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Tour Date</Label>
+              <Input type="date" value={scheduleTourDate} onChange={(e) => setScheduleTourDate(e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Tour Time</Label>
+              <Input type="time" value={scheduleTourTime} onChange={(e) => setScheduleTourTime(e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Tour Mode</Label>
+              <select value={scheduleTourMode} onChange={(e) => setScheduleTourMode(e.target.value as 'physical' | 'virtual')} className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs">
+                <option value="physical">Physical</option>
+                <option value="virtual">Virtual</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Budget</Label>
+              <Input type="number" value={scheduleBudget} onChange={(e) => setScheduleBudget(e.target.value)} className="h-8 text-xs" />
+            </div>
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label className="text-xs">Remarks</Label>
+              <Input
+                value={scheduleRemarks}
+                onChange={(e) => setScheduleRemarks(e.target.value)}
+                placeholder="Any context for assigned person"
+                className="h-8 text-xs"
+              />
+            </div>
+          </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setScheduleOpen(false)}>Cancel</Button>
+            {!existingTourInfo ? (
+              <Button onClick={handleScheduleTourFromLead} disabled={createVisit.isPending}>
+                {createVisit.isPending ? 'Scheduling...' : 'Schedule'}
+              </Button>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 };
