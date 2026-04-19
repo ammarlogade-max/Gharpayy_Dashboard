@@ -33,7 +33,11 @@ export type SupabaseTour = {
   created_at: string | null;
 };
 
-export type NewSupabaseTour = Omit<SupabaseTour, "id" | "created_at">;
+export type NewSupabaseTour = Omit<SupabaseTour, "id" | "created_at"> & {
+  id?: string;
+};
+
+export type UpdateSupabaseTour = Partial<Omit<SupabaseTour, "id" | "created_at">>;
 
 function getSupabaseEnv() {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -86,18 +90,43 @@ export async function fetchTourById(id: string, signal?: AbortSignal): Promise<S
 
 export async function createTour(payload: NewSupabaseTour): Promise<SupabaseTour> {
   const { base, anon } = getSupabaseEnv();
+  const withId: NewSupabaseTour = {
+    ...payload,
+    id: payload.id ?? crypto.randomUUID(),
+  };
   const res = await fetch(`${base}/rest/v1/tours?select=*`, {
     method: "POST",
     headers: {
       ...headers(anon),
       Prefer: "return=representation",
     },
-    body: JSON.stringify([payload]),
+    body: JSON.stringify([withId]),
   });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Failed to create tour: ${res.status} ${text}`);
   }
   const rows = (await res.json()) as SupabaseTour[];
+  return rows[0];
+}
+
+export async function updateTourById(id: string, payload: UpdateSupabaseTour): Promise<SupabaseTour> {
+  const { base, anon } = getSupabaseEnv();
+  const res = await fetch(`${base}/rest/v1/tours?id=eq.${encodeURIComponent(id)}&select=*`, {
+    method: "PATCH",
+    headers: {
+      ...headers(anon),
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to update tour: ${res.status} ${text}`);
+  }
+  const rows = (await res.json()) as SupabaseTour[];
+  if (!rows?.length) {
+    throw new Error("Tour not found after update");
+  }
   return rows[0];
 }
