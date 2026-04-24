@@ -472,7 +472,7 @@ function RolesTab() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ fullName: '', email: '', phone: '' });
+  const [editForm, setEditForm] = useState({ fullName: '', email: '', phone: '', role: '', zones: [] as string[] });
   const [updating, setUpdating] = useState(false);
 
   const isRoleVisibleUser = (u: any) => {
@@ -516,23 +516,39 @@ function RolesTab() {
     loadData();
   }, []);
 
-  const handleStartEdit = (user: any) => {
+  const handleStartEdit = (user: any, fallbackRole?: 'manager' | 'admin' | 'member') => {
     setEditingId(user.id);
     setEditForm({
       fullName: user.fullName || user.name || '',
       email: user.email || '',
       phone: user.phone || '',
+      role: user.role || fallbackRole || '',
+      zones: Array.isArray(user.zones) ? user.zones : [],
     });
   };
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
+    if ((editForm.role === 'admin' || editForm.role === 'member') && editForm.zones.length === 0) {
+      toast.error('Please assign at least one zone');
+      return;
+    }
+
     try {
       setUpdating(true);
+      const payload: any = {
+        fullName: editForm.fullName,
+        email: editForm.email,
+        phone: editForm.phone,
+      };
+      if (editForm.role === 'admin' || editForm.role === 'member') {
+        payload.zones = editForm.zones;
+      }
+
       const res = await fetch(`/api/users/${editingId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error((await res.json()).error);
       toast.success('Updated successfully');
@@ -616,7 +632,7 @@ function RolesTab() {
                 <div className="border-t p-4 space-y-4 bg-secondary/10">
                   {/* Manager Details */}
                   {editingId === manager.id ? (
-                    <EditForm form={editForm} setForm={setEditForm} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
+                    <EditForm form={editForm} setForm={setEditForm} zones={zones} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
                   ) : (
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
@@ -624,7 +640,7 @@ function RolesTab() {
                         <p className="text-xs text-muted-foreground">Username: <span className="text-foreground">{manager.username}</span></p>
                       </div>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(manager)}><Pencil size={12} /></Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(manager, 'manager')}><Pencil size={12} /></Button>
                         <Button size="sm" variant="ghost" onClick={() => handleResetPassword(manager.id, manager.fullName)}><KeyRound size={12} /></Button>
                       </div>
                     </div>
@@ -694,7 +710,7 @@ function RolesTab() {
               {expandedId === admin.id && (
                 <div className="border-t p-4 space-y-4 bg-secondary/10">
                   {editingId === admin.id ? (
-                    <EditForm form={editForm} setForm={setEditForm} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
+                    <EditForm form={editForm} setForm={setEditForm} zones={zones} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
                   ) : (
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
@@ -703,7 +719,7 @@ function RolesTab() {
                         <p className="text-xs text-muted-foreground">Zones: <span className="text-foreground">{admin.zones?.join(', ') || 'None'}</span></p>
                       </div>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(admin)}><Pencil size={12} /></Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(admin, 'admin')}><Pencil size={12} /></Button>
                         <Button size="sm" variant="ghost" onClick={() => handleResetPassword(admin.id, admin.fullName)}><KeyRound size={12} /></Button>
                       </div>
                     </div>
@@ -774,7 +790,7 @@ function RolesTab() {
               {expandedId === member.id && (
                 <div className="border-t p-4 space-y-4 bg-secondary/10">
                   {editingId === member.id ? (
-                    <EditForm form={editForm} setForm={setEditForm} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
+                    <EditForm form={editForm} setForm={setEditForm} zones={zones} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
                   ) : (
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
@@ -783,7 +799,7 @@ function RolesTab() {
                         <p className="text-xs text-muted-foreground">Zones: <span className="text-foreground">{member.zones?.join(', ') || 'None'}</span></p>
                       </div>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(member)}><Pencil size={12} /></Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(member, 'member')}><Pencil size={12} /></Button>
                         <Button size="sm" variant="ghost" onClick={() => handleResetPassword(member.id, member.fullName || (member as any).name)}><KeyRound size={12} /></Button>
                       </div>
                     </div>
@@ -807,12 +823,14 @@ function RolesTab() {
 function EditForm({
   form,
   setForm,
+  zones,
   onSave,
   onCancel,
   saving,
 }: {
-  form: { fullName: string; email: string; phone: string };
+  form: { fullName: string; email: string; phone: string; role: string; zones: string[] };
   setForm: (f: any) => void;
+  zones: ZoneOption[];
   onSave: () => void;
   onCancel: () => void;
   saving: boolean;
@@ -833,6 +851,35 @@ function EditForm({
           <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="text-xs" />
         </div>
       </div>
+
+      {(form.role === 'admin' || form.role === 'member') && zones.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-xs flex items-center gap-1.5">
+            <MapPin size={12} />
+            Zones
+          </Label>
+          <div className="grid grid-cols-2 gap-2">
+            {zones.map((zone) => (
+              <label key={zone.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.zones.includes(zone.name)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setForm({ ...form, zones: [...form.zones, zone.name] });
+                    } else {
+                      setForm({ ...form, zones: form.zones.filter((z) => z !== zone.name) });
+                    }
+                  }}
+                  className="rounded"
+                />
+                {zone.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2">
         <Button size="sm" onClick={onSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
         <Button size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
