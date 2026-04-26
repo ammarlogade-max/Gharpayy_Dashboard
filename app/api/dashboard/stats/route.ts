@@ -3,7 +3,22 @@ import connectToDatabase from '@/lib/mongodb';
 import Lead from '@/models/Lead';
 import Visit from '@/models/Visit';
 import Booking from '@/models/Booking';
+import Member from '@/models/Member';
+import User from '@/models/User';
 import { getAuthUserFromCookie } from '@/lib/auth';
+import mongoose from 'mongoose';
+
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+function getTodayISTRange() {
+  const now = new Date();
+  const istNow = new Date(now.getTime() + IST_OFFSET_MS);
+  const y = istNow.getUTCFullYear();
+  const m = istNow.getUTCMonth();
+  const d = istNow.getUTCDate();
+  const startUtc = new Date(Date.UTC(y, m, d) - IST_OFFSET_MS);
+  const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+  return { startUtc, endUtc };
+}
 
 export async function GET() {
   try {
@@ -13,8 +28,8 @@ export async function GET() {
     await connectToDatabase();
 
     const leadQuery: any = {};
-    const visitQuery: any = {};
     const bookingQuery: any = { bookingStatus: 'booked' };
+    let scopedMemberIds: string[] = [];
 
     if (authUser.role === 'member') {
       leadQuery.assignedMemberId = authUser.id;
@@ -24,9 +39,42 @@ export async function GET() {
       // If we don't have direct filtering on visits/bookings, we might need a more complex query
     }
 
+    if (authUser.role === 'admin') {
+      const adminUser = await User.findById(authUser.id).select('zones');
+      const adminZones = new Set((adminUser?.zones || []).map((zone: any) => String(zone).trim().toLowerCase()).filter(Boolean));
+
+      if (adminZones.size === 0) {
+        return NextResponse.json({
+          totalLeads: 0,
+          newToday: 0,
+          leadsToday: 0,
+          avgResponseTime: 0,
+          slaCompliance: 0,
+          slaBreaches: 0,
+          conversionRate: 0,
+          visitsScheduled: 0,
+          toursScheduledToday: 0,
+          visitsCompleted: 0,
+          bookingsClosed: 0,
+          perEmployee: [],
+        });
+      }
+
+      const teamMembers = await User.find({ role: 'member', status: { $in: ['active', 'inactive'] } }).select('_id zones').lean();
+      scopedMemberIds = teamMembers
+        .filter((member: any) => {
+          const memberZones = Array.isArray(member.zones)
+            ? member.zones.map((zone: any) => String(zone).trim().toLowerCase()).filter(Boolean)
+            : [];
+          return memberZones.some((zone: string) => adminZones.has(zone));
+        })
+        .map((member: any) => String(member._id));
+
+      leadQuery.assignedMemberId = { $in: scopedMemberIds };
+    }
+
     const [leads] = await Promise.all([
-      Lead.find(leadQuery, 'id status firstResponseTimeMin source createdAt'),
-      // Add visit/booking filtering later if needed, but leads are the primary constraint
+      Lead.find(leadQuery, 'id status firstResponseTimeMin source createdAt createdBy assignedMemberId'),
     ]);
 
     // Re-fetch visits and bookings with filtering if member
@@ -40,11 +88,13 @@ export async function GET() {
       bookings = await Booking.find(bookingQuery, 'id');
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const { startUtc, endUtc } = getTodayISTRange();
 
     const totalLeads = leads.length;
-    const newToday = leads.filter(l => new Date(l.createdAt) >= today).length;
+    const leadsToday = leads.filter(l => {
+      const t = new Date(l.createdAt);
+      return t >= startUtc && t < endUtc;
+    }).length;
     const responseTimes = leads.filter(l => l.firstResponseTimeMin !== undefined && l.firstResponseTimeMin !== null).map(l => l.firstResponseTimeMin!);
     const avgResponseTime = responseTimes.length ? +(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length).toFixed(1) : 0;
     const withinSLA = responseTimes.filter(t => t <= 5).length;
@@ -52,19 +102,78 @@ export async function GET() {
     const slaBreaches = responseTimes.filter(t => t > 5).length;
     const bookedLeads = leads.filter(l => l.status === 'booked').length;
     const conversionRate = totalLeads ? +((bookedLeads / totalLeads) * 100).toFixed(1) : 0;
-    const upcomingVisits = visits.filter(v => new Date(v.scheduledAt) >= today && !v.outcome).length;
+    const toursScheduledToday = visits.filter(v => {
+      const t = new Date(v.scheduledAt);
+      return t >= startUtc && t < endUtc;
+    }).length;
     const completedVisits = visits.filter(v => v.outcome !== undefined && v.outcome !== null).length;
+
+    const memberFilter: any = {};
+    if (authUser.role === 'member') {
+      memberFilter._id = new mongoose.Types.ObjectId(authUser.id);
+    } else if (authUser.role === 'admin' && scopedMemberIds.length > 0) {
+      memberFilter._id = { $in: scopedMemberIds.map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    const members = await Member.find(memberFilter).select('name zoneName isActive').lean();
+    const memberIdSet = new Set(members.map(m => m._id.toString()));
+
+    const leadMatch: any = { createdAt: { $gte: startUtc, $lt: endUtc } };
+    if (authUser.role === 'member') {
+      leadMatch.createdBy = new mongoose.Types.ObjectId(authUser.id);
+    } else if (authUser.role === 'admin' && scopedMemberIds.length > 0) {
+      leadMatch.createdBy = { $in: scopedMemberIds.map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    const leadAgg = await Lead.aggregate([
+      { $match: leadMatch },
+      { $group: { _id: '$createdBy', count: { $sum: 1 } } },
+    ]);
+
+    const visitMatch: any = { scheduledAt: { $gte: startUtc, $lt: endUtc } };
+    if (authUser.role === 'member') {
+      visitMatch.assignedStaffId = new mongoose.Types.ObjectId(authUser.id);
+    } else if (authUser.role === 'admin' && scopedMemberIds.length > 0) {
+      visitMatch.assignedStaffId = { $in: scopedMemberIds.map((id) => new mongoose.Types.ObjectId(id)) };
+    }
+    const visitAgg = await Visit.aggregate([
+      { $match: visitMatch },
+      { $group: { _id: '$assignedStaffId', count: { $sum: 1 } } },
+    ]);
+
+    const leadMap = new Map<string, number>();
+    leadAgg.forEach(r => {
+      if (!r._id) return;
+      leadMap.set(String(r._id), r.count || 0);
+    });
+    const visitMap = new Map<string, number>();
+    visitAgg.forEach(r => {
+      if (!r._id) return;
+      visitMap.set(String(r._id), r.count || 0);
+    });
+
+    const perEmployee = members.map(m => {
+      const id = m._id.toString();
+      return {
+        memberId: id,
+        name: m.name,
+        zoneName: m.zoneName || '',
+        leadsToday: leadMap.get(id) || 0,
+        toursToday: visitMap.get(id) || 0,
+      };
+    }).filter(row => memberIdSet.has(row.memberId));
 
     return NextResponse.json({
       totalLeads,
-      newToday,
+      newToday: leadsToday,
+      leadsToday,
       avgResponseTime,
       slaCompliance,
       slaBreaches,
       conversionRate,
-      visitsScheduled: upcomingVisits,
+      visitsScheduled: toursScheduledToday,
+      toursScheduledToday,
       visitsCompleted: completedVisits,
       bookingsClosed: bookedLeads,
+      perEmployee,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Internal Server Error' }, { status: 500 });

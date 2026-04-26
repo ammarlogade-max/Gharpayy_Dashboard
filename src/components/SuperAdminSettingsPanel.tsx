@@ -26,7 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
-import { Plus, Loader2, MoreVertical, UserPlus, Users, Shield, User, ChevronRight, KeyRound, Pencil, MapPin, Eye, EyeOff } from 'lucide-react';
+import { Plus, Loader2, MoreVertical, UserPlus, Users, Shield, User, ChevronRight, KeyRound, Pencil, MapPin, Eye, EyeOff, Link2, Copy, RefreshCcw } from 'lucide-react';
 import { LoginActivityTab, LeadActivityTab } from '@/components/ActivityTabs';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -69,7 +69,7 @@ interface ZoneOption {
 
 /* ========== Main Panel ========== */
 export function SuperAdminSettingsPanel() {
-  const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'profiles' | 'activity'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'roles' | 'profiles' | 'activity' | 'integration'>('users');
 
   return (
     <div className="space-y-6">
@@ -80,6 +80,7 @@ export function SuperAdminSettingsPanel() {
           { id: 'roles', label: 'Roles', icon: Shield },
           { id: 'profiles', label: 'Profiles', icon: User },
           { id: 'activity', label: 'Activity', icon: KeyRound },
+          { id: 'integration', label: 'Integration', icon: Link2 },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -100,6 +101,7 @@ export function SuperAdminSettingsPanel() {
       {activeTab === 'roles' && <RolesTab />}
       {activeTab === 'profiles' && <ProfilesTab />}
       {activeTab === 'activity' && <ActivityTab />}
+      {activeTab === 'integration' && <IntegrationTab />}
     </div>
   );
 }
@@ -470,7 +472,7 @@ function RolesTab() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({ fullName: '', email: '', phone: '' });
+  const [editForm, setEditForm] = useState({ fullName: '', email: '', phone: '', role: '', zones: [] as string[] });
   const [updating, setUpdating] = useState(false);
 
   const isRoleVisibleUser = (u: any) => {
@@ -514,23 +516,39 @@ function RolesTab() {
     loadData();
   }, []);
 
-  const handleStartEdit = (user: any) => {
+  const handleStartEdit = (user: any, fallbackRole?: 'manager' | 'admin' | 'member') => {
     setEditingId(user.id);
     setEditForm({
       fullName: user.fullName || user.name || '',
       email: user.email || '',
       phone: user.phone || '',
+      role: user.role || fallbackRole || '',
+      zones: Array.isArray(user.zones) ? user.zones : [],
     });
   };
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
+    if ((editForm.role === 'admin' || editForm.role === 'member') && editForm.zones.length === 0) {
+      toast.error('Please assign at least one zone');
+      return;
+    }
+
     try {
       setUpdating(true);
+      const payload: any = {
+        fullName: editForm.fullName,
+        email: editForm.email,
+        phone: editForm.phone,
+      };
+      if (editForm.role === 'admin' || editForm.role === 'member') {
+        payload.zones = editForm.zones;
+      }
+
       const res = await fetch(`/api/users/${editingId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error((await res.json()).error);
       toast.success('Updated successfully');
@@ -614,7 +632,7 @@ function RolesTab() {
                 <div className="border-t p-4 space-y-4 bg-secondary/10">
                   {/* Manager Details */}
                   {editingId === manager.id ? (
-                    <EditForm form={editForm} setForm={setEditForm} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
+                    <EditForm form={editForm} setForm={setEditForm} zones={zones} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
                   ) : (
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
@@ -622,7 +640,7 @@ function RolesTab() {
                         <p className="text-xs text-muted-foreground">Username: <span className="text-foreground">{manager.username}</span></p>
                       </div>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(manager)}><Pencil size={12} /></Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(manager, 'manager')}><Pencil size={12} /></Button>
                         <Button size="sm" variant="ghost" onClick={() => handleResetPassword(manager.id, manager.fullName)}><KeyRound size={12} /></Button>
                       </div>
                     </div>
@@ -692,7 +710,7 @@ function RolesTab() {
               {expandedId === admin.id && (
                 <div className="border-t p-4 space-y-4 bg-secondary/10">
                   {editingId === admin.id ? (
-                    <EditForm form={editForm} setForm={setEditForm} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
+                    <EditForm form={editForm} setForm={setEditForm} zones={zones} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
                   ) : (
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
@@ -701,7 +719,7 @@ function RolesTab() {
                         <p className="text-xs text-muted-foreground">Zones: <span className="text-foreground">{admin.zones?.join(', ') || 'None'}</span></p>
                       </div>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(admin)}><Pencil size={12} /></Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(admin, 'admin')}><Pencil size={12} /></Button>
                         <Button size="sm" variant="ghost" onClick={() => handleResetPassword(admin.id, admin.fullName)}><KeyRound size={12} /></Button>
                       </div>
                     </div>
@@ -772,7 +790,7 @@ function RolesTab() {
               {expandedId === member.id && (
                 <div className="border-t p-4 space-y-4 bg-secondary/10">
                   {editingId === member.id ? (
-                    <EditForm form={editForm} setForm={setEditForm} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
+                    <EditForm form={editForm} setForm={setEditForm} zones={zones} onSave={handleSaveEdit} onCancel={() => setEditingId(null)} saving={updating} />
                   ) : (
                     <div className="flex items-start justify-between">
                       <div className="space-y-1">
@@ -781,7 +799,7 @@ function RolesTab() {
                         <p className="text-xs text-muted-foreground">Zones: <span className="text-foreground">{member.zones?.join(', ') || 'None'}</span></p>
                       </div>
                       <div className="flex gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(member)}><Pencil size={12} /></Button>
+                        <Button size="sm" variant="ghost" onClick={() => handleStartEdit(member, 'member')}><Pencil size={12} /></Button>
                         <Button size="sm" variant="ghost" onClick={() => handleResetPassword(member.id, member.fullName || (member as any).name)}><KeyRound size={12} /></Button>
                       </div>
                     </div>
@@ -805,12 +823,14 @@ function RolesTab() {
 function EditForm({
   form,
   setForm,
+  zones,
   onSave,
   onCancel,
   saving,
 }: {
-  form: { fullName: string; email: string; phone: string };
+  form: { fullName: string; email: string; phone: string; role: string; zones: string[] };
   setForm: (f: any) => void;
+  zones: ZoneOption[];
   onSave: () => void;
   onCancel: () => void;
   saving: boolean;
@@ -831,6 +851,35 @@ function EditForm({
           <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="text-xs" />
         </div>
       </div>
+
+      {(form.role === 'admin' || form.role === 'member') && zones.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-xs flex items-center gap-1.5">
+            <MapPin size={12} />
+            Zones
+          </Label>
+          <div className="grid grid-cols-2 gap-2">
+            {zones.map((zone) => (
+              <label key={zone.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.zones.includes(zone.name)}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setForm({ ...form, zones: [...form.zones, zone.name] });
+                    } else {
+                      setForm({ ...form, zones: form.zones.filter((z) => z !== zone.name) });
+                    }
+                  }}
+                  className="rounded"
+                />
+                {zone.name}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2">
         <Button size="sm" onClick={onSave} disabled={saving}>{saving ? 'Saving...' : 'Save'}</Button>
         <Button size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
@@ -991,6 +1040,94 @@ function ActivityTab() {
 
       {activeSection === 'login_activity' && <LoginActivityTab />}
       {activeSection === 'lead_activity' && <LeadActivityTab />}
+    </div>
+  );
+}
+
+function IntegrationTab() {
+  const [keyValue, setKeyValue] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [rotating, setRotating] = useState(false);
+  const [rotatedAt, setRotatedAt] = useState<string | null>(null);
+
+  const loadKey = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/integration-key', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load key');
+      setKeyValue(data.key || '');
+      setRotatedAt(data.rotatedAt ? new Date(data.rotatedAt).toLocaleString('en-IN') : null);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadKey();
+  }, []);
+
+  const handleCopy = async () => {
+    if (!keyValue) return;
+    try {
+      await navigator.clipboard.writeText(keyValue);
+      toast.success('Integration key copied');
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+
+  const handleRotate = async () => {
+    if (!confirm('Regenerate integration key? This will disconnect existing integrations.')) return;
+    try {
+      setRotating(true);
+      const res = await fetch('/api/integration-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rotate: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to regenerate');
+      setKeyValue(data.key || '');
+      setRotatedAt(data.rotatedAt ? new Date(data.rotatedAt).toLocaleString('en-IN') : null);
+      toast.success('Integration key regenerated');
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  return (
+    <div className="kpi-card max-w-xl">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="font-display font-semibold text-xs text-foreground">Integration Key</h3>
+          <p className="text-[11px] text-muted-foreground mt-1">Use this key to connect Attendance system.</p>
+        </div>
+        {rotatedAt && <span className="text-[10px] text-muted-foreground">Updated {rotatedAt}</span>}
+      </div>
+      {loading ? (
+        <div className="text-xs text-muted-foreground">Loading key...</div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Input value={keyValue} readOnly className="text-xs" />
+            <Button variant="outline" size="sm" onClick={handleCopy} className="gap-1.5 text-xs">
+              <Copy size={12} /> Copy
+            </Button>
+          </div>
+          <Button size="sm" variant="secondary" onClick={handleRotate} disabled={rotating} className="gap-1.5 text-xs">
+            <RefreshCcw size={12} />
+            {rotating ? 'Regenerating...' : 'Regenerate Key'}
+          </Button>
+          <div className="text-[11px] text-muted-foreground">
+            Share this key once in ARENA OS &gt; Connect to CRM. It acts like a pairing code.
+          </div>
+        </div>
+      )}
     </div>
   );
 }

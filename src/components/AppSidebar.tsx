@@ -2,23 +2,28 @@ import { NavLink } from '@/components/NavLink';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Kanban, CalendarCheck, BarChart3, Settings,
-  MessageSquare, History, X, Moon, Sun, Building2, Bed, TrendingUp,
-  Map, Sparkles, Receipt, Globe, UserCircle, LogOut, Trophy,
+  MessageSquare, History, Trophy, X, Moon, Sun, Building2, Bed, TrendingUp,
+  Map, Sparkles, Receipt, Globe, UserCircle, LogOut, ClipboardList,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/contexts/AuthContext';
+import { formatUserLabel } from '@/lib/userDisplay';
 
-const salesItems = [
+const demandItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/leads', icon: Users, label: 'Leads' },
   { to: '/pipeline', icon: Kanban, label: 'Pipeline' },
-  { to: '/visits', icon: CalendarCheck, label: 'Visits' },
+  { to: '/Tours', icon: CalendarCheck, label: 'Tours' },
   { to: '/conversations', icon: MessageSquare, label: 'Messages' },
   { to: '/bookings', icon: Receipt, label: 'Bookings' },
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/historical', icon: History, label: 'Historical' },
   { to: '/leaderboard', icon: Trophy, label: 'Leaderboard' },
+  { to: '/tours-live', icon: ClipboardList, label: 'Tours Live' },
+  { to: '/myt/tours', icon: CalendarCheck, label: 'Tours' },
+  { to: '/myt/schedule', icon: ClipboardList, label: 'Schedule' },
+  { to: '/myt/calendar', icon: History, label: 'Calendar' },
 ];
 
 const supplyItems = [
@@ -31,19 +36,23 @@ const supplyItems = [
 ];
 
 const portalItems = [
-  { to: '/owner-portal', icon: UserCircle, label: 'Owner Portal' },
+  { to: '/owner-portal/v2', icon: UserCircle, label: 'Owner Portal' },
 ];
 
 const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => void }) => {
   const pathname = usePathname();
+  const { signOut, user } = useAuth();
   const [dark, setDark] = useState(false);
-  const { user, signOut } = useAuth();
+  const userLabel = formatUserLabel(user);
+  const zoneLabel = Array.isArray(user?.zones) && user.zones.length > 0
+    ? user.zones.join(', ')
+    : '';
   useEffect(() => {
     setDark(document.documentElement.classList.contains('dark'));
   }, []);
   useEffect(() => { document.documentElement.classList.toggle('dark', dark); }, [dark]);
 
-  const renderGroup = (label: string, items: typeof salesItems) => (
+  const renderGroup = (label: string, items: typeof demandItems) => (
     <>
       <p className="px-2.5 pt-4 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: 'hsl(var(--sidebar-fg))' }}>{label}</p>
       {items.map((item) => {
@@ -79,7 +88,7 @@ const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => voi
             </div>
             <div>
               <h1 className="font-semibold text-[13px] tracking-tight" style={{ color: 'hsl(var(--sidebar-active-fg))' }}>Gharpayy</h1>
-              <p className="text-[9px] -mt-0.5" style={{ color: 'hsl(var(--sidebar-fg))' }}>Booking OS</p>
+              <p className="text-[9px] -mt-0.5" style={{ color: 'hsl(var(--sidebar-fg))' }}>Growth OS</p>
             </div>
           </div>
           <button className="lg:hidden p-1 rounded-md hover:bg-white/10 transition-colors" onClick={onClose}>
@@ -89,7 +98,7 @@ const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => voi
 
         {/* Nav */}
         <nav className="flex-1 px-2 overflow-y-auto space-y-0.5">
-          {renderGroup('Demand', salesItems)}
+          {renderGroup('Demand', demandItems)}
           {renderGroup('Supply', supplyItems)}
           {renderGroup('Portals', portalItems)}
         </nav>
@@ -104,7 +113,13 @@ const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => voi
             <Settings size={15} strokeWidth={1.6} />
             <span>Settings</span>
           </NavLink>
-          <button onClick={signOut} className="sidebar-link w-full">
+          <button
+            onClick={async () => {
+              onClose?.();
+              await signOut();
+            }}
+            className="sidebar-link w-full"
+          >
             <LogOut size={15} strokeWidth={1.6} />
             <span>Logout</span>
           </button>
@@ -112,11 +127,17 @@ const AppSidebar = ({ isOpen, onClose }: { isOpen?: boolean; onClose?: () => voi
           <div className="mt-2 mx-0.5 p-2.5 rounded-lg" style={{ background: 'hsl(var(--sidebar-hover))' }}>
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center">
-                <span className="text-[9px] font-bold text-accent">{(user?.fullName || 'U').charAt(0).toUpperCase()}</span>
+                <span className="text-[9px] font-bold text-accent">{(user?.username || user?.fullName || 'U').slice(0, 1).toUpperCase()}</span>
               </div>
               <div className="min-w-0">
-                <p className="text-[11px] font-medium truncate" style={{ color: 'hsl(var(--sidebar-active-fg))' }}>{user?.fullName || 'User'}</p>
-                <p className="text-[9px] truncate" style={{ color: 'hsl(var(--sidebar-fg))' }}>{user?.zoneName ? `${user.zoneName} · ` : ''}{user?.role || 'guest'}</p>
+                <p className="text-[11px] font-medium truncate" style={{ color: 'hsl(var(--sidebar-active-fg))' }}>
+                  {userLabel || 'Signed in user'}
+                </p>
+                {zoneLabel && (
+                  <p className="text-[10px] truncate" style={{ color: 'hsl(var(--sidebar-fg))' }}>
+                    {zoneLabel}
+                  </p>
+                )}
               </div>
             </div>
           </div>

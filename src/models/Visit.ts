@@ -5,6 +5,7 @@ export interface IVisit extends Document {
   propertyId: mongoose.Types.ObjectId;
   assignedStaffId: mongoose.Types.ObjectId;
   scheduledAt: Date;
+  scheduleRemarks?: string;
   outcome?: 'completed' | 'no_show' | 'rescheduled' | 'cancelled';
   notes?: string;
   createdAt: Date;
@@ -17,6 +18,7 @@ const VisitSchema: Schema = new Schema(
     propertyId: { type: Schema.Types.ObjectId, ref: 'Property', required: true },
     assignedStaffId: { type: Schema.Types.ObjectId, ref: 'Member', required: true },
     scheduledAt: { type: Date, required: true },
+    scheduleRemarks: { type: String },
     outcome: { type: String, enum: ['completed', 'no_show', 'rescheduled', 'cancelled'] },
     notes: { type: String },
   },

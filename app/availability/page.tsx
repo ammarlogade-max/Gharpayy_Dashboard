@@ -56,7 +56,7 @@ const Availability = () => {
   }, [beds, properties]);
 
   return (
-    <AppLayout title="Availability" subtitle="Sales intelligence — what to pitch right now">
+    <AppLayout title="Availability" subtitle="Pipeline intelligence — what to pitch right now">
       <div className="space-y-6">
         {/* Heatmap */}
         <div>

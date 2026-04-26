@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     }
 
     const systemPrompt = `You are the geo-intelligence engine for Gharpay, a Bangalore property matching startup.
-Given a sales lead, extract structured intent and match to best Bangalore residential areas.
+Given an incoming lead, extract structured intent and match to best Bangalore residential areas.
 Bangalore knowledge base:
 ${knowledgeSnapshot}
 Return ONLY valid JSON (no markdown):

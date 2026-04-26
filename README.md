@@ -25,9 +25,8 @@ npm install
 ```env
 MONGODB_URI=mongodb://localhost:27017/dashboard
 JWT_SECRET=replace_with_a_strong_secret
-ADMIN_USERNAME=admin@example.com
-ADMIN_PASSWORD=replace_with_a_strong_password
 ```
+
 
 3. Start development server:
 ```bash
